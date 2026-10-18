@@ -1,0 +1,9 @@
+<!-- Source for `pnpm tauri icon`. The star mark from stellarium.sh's apple-icon, on its ink tile with macOS icon margins. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#102b31"/>
+  <g transform="translate(219 219) scale(12.2083)">
+    <path d="M24 2v44M2 24h44" stroke="#d6f36a" stroke-width="2"/>
+    <path d="m7 7 34 34M41 7 7 41" stroke="#d6f36a" stroke-width="1.5" opacity=".5"/>
+    <circle cx="24" cy="24" r="6" fill="#d6f36a"/>
+  </g>
+</svg>
