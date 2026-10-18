@@ -1,0 +1,104 @@
+//! Resolving a node's effective network settings from its scopes.
+//!
+//! Each setting resolves on its own, nearest scope first (request, then collection, then
+//! workspace), so a request can override just the node and still inherit the registry.
+//! The node API key travels with the node URL: it comes from the same scope, so a key set
+//! for one node is never sent to a node configured elsewhere.
+
+use serde::Serialize;
+use uuid::Uuid;
+
+use crate::model::NodeKind;
+use crate::storage::Scope;
+
+/// The mainnet registry API, used when no scope sets a registry.
+pub const MAINNET_REGISTRY_URL: &str = "https://stellarium-resource-registry-production.up.railway.app/v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeRef {
+    pub id: Uuid,
+    pub kind: NodeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedNetwork {
+    pub registry_url: String,
+    /// Where the registry came from; `None` is the built-in mainnet default.
+    pub registry_from: Option<ScopeRef>,
+    pub node_url: Option<String>,
+    pub node_from: Option<ScopeRef>,
+    /// The scope whose keychain entry holds the node's API key, if it has one.
+    pub node_key_scope: Option<Uuid>,
+}
+
+/// Resolves settings from `scopes`, nearest first.
+pub fn resolve(scopes: &[Scope]) -> ResolvedNetwork {
+    let registry = scopes.iter().find_map(|s| s.network.registry_url.clone().map(|url| (url, s)));
+    let node = scopes.iter().find_map(|s| s.network.node_url.clone().map(|url| (url, s)));
+    ResolvedNetwork {
+        registry_url: registry.as_ref().map_or_else(|| MAINNET_REGISTRY_URL.to_string(), |(url, _)| url.clone()),
+        registry_from: registry.map(|(_, s)| ScopeRef { id: s.id, kind: s.kind }),
+        node_key_scope: node.as_ref().and_then(|(_, s)| s.network.node_key.then_some(s.id)),
+        node_from: node.as_ref().map(|(_, s)| ScopeRef { id: s.id, kind: s.kind }),
+        node_url: node.map(|(url, _)| url),
+    }
+}
+
+/// The registry API base with a single trailing `/v1`, accepting input with or without it.
+pub fn registry_base(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    if url.ends_with("/v1") { url.to_string() } else { format!("{url}/v1") }
+}
+
+/// A node's origin without a trailing `/v1`, accepting input with or without it.
+pub fn node_base(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    url.strip_suffix("/v1").unwrap_or(url).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::NetworkConfig;
+
+    fn scope(kind: NodeKind, registry: Option<&str>, node: Option<&str>, key: bool) -> Scope {
+        Scope { id: Uuid::new_v4(), kind, network: NetworkConfig { registry_url: registry.map(Into::into), node_url: node.map(Into::into), node_key: key } }
+    }
+
+    #[test]
+    fn falls_back_to_mainnet() {
+        let resolved = resolve(&[scope(NodeKind::Request, None, None, false), scope(NodeKind::Workspace, None, None, false)]);
+        assert_eq!(resolved.registry_url, MAINNET_REGISTRY_URL);
+        assert_eq!(resolved.registry_from, None);
+        assert_eq!(resolved.node_url, None);
+        assert_eq!(resolved.node_key_scope, None);
+    }
+
+    #[test]
+    fn nearest_scope_wins_per_field() {
+        let req = scope(NodeKind::Request, None, Some("http://req-node"), false);
+        let col = scope(NodeKind::Collection, Some("http://col-registry/v1"), None, false);
+        let ws = scope(NodeKind::Workspace, Some("http://ws-registry/v1"), Some("http://ws-node"), true);
+        let resolved = resolve(&[req.clone(), col.clone(), ws.clone()]);
+        assert_eq!(resolved.registry_url, "http://col-registry/v1");
+        assert_eq!(resolved.registry_from, Some(ScopeRef { id: col.id, kind: NodeKind::Collection }));
+        assert_eq!(resolved.node_url.as_deref(), Some("http://req-node"));
+        assert_eq!(resolved.node_from.map(|s| s.id), Some(req.id));
+        // The workspace's key belongs to the workspace's node, not the request's.
+        assert_eq!(resolved.node_key_scope, None);
+
+        let resolved = resolve(&[scope(NodeKind::Request, None, None, false), col, ws.clone()]);
+        assert_eq!(resolved.node_url.as_deref(), Some("http://ws-node"));
+        assert_eq!(resolved.node_key_scope, Some(ws.id));
+    }
+
+    #[test]
+    fn normalizes_bases() {
+        assert_eq!(registry_base("http://localhost:4000"), "http://localhost:4000/v1");
+        assert_eq!(registry_base("http://localhost:4000/v1/"), "http://localhost:4000/v1");
+        assert_eq!(node_base("http://localhost:3100/v1"), "http://localhost:3100");
+        assert_eq!(node_base(" http://localhost:3100/ "), "http://localhost:3100");
+    }
+}
