@@ -1,3 +1,4 @@
+import type { Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 import {
   api,
@@ -9,6 +10,7 @@ import {
   type Tree,
   type TreeNode,
 } from "./api";
+import { checkForUpdate, installAndRelaunch } from "./updater";
 
 export interface Tab {
   id: string;
@@ -37,6 +39,14 @@ export type Dialog =
   | { kind: "network"; node: TreeNode }
   | { kind: "confirm"; title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void> | void };
 
+export interface UpdateState {
+  version: string;
+  status: "available" | "installing" | "error";
+  /** Download progress, 0–1; null while unknown. */
+  progress: number | null;
+  error: string | null;
+}
+
 interface State {
   tree: Tree;
   activeWorkspaceId: string | null;
@@ -47,6 +57,7 @@ interface State {
   dialog: Dialog | null;
   toast: { message: string; error: boolean } | null;
   browserOpen: boolean;
+  update: UpdateState | null;
 
   loadTree(): Promise<void>;
   setActiveWorkspace(id: string | null): void;
@@ -63,9 +74,25 @@ interface State {
   setDialog(dialog: Dialog | null): void;
   notify(message: string, error?: boolean): void;
   toggleBrowser(): void;
+  /** `manual` checks report "up to date" and show versions the user said "later" to. */
+  checkForUpdates(manual?: boolean): Promise<void>;
+  installUpdate(): void;
+  dismissUpdate(): void;
 }
 
 const WORKSPACE_KEY = "explorer.activeWorkspace";
+const DISMISSED_UPDATE_KEY = "explorer.dismissedUpdate";
+
+function dismissedUpdate(): string | null {
+  try {
+    return localStorage.getItem(DISMISSED_UPDATE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** The plugin's handle for the available update; it holds a native resource, so it stays out of state. */
+let pendingUpdate: Update | null = null;
 
 function storedWorkspace(): string | null {
   try {
@@ -125,6 +152,7 @@ export const useStore = create<State>((set, get) => ({
   dialog: null,
   toast: null,
   browserOpen: true,
+  update: null,
 
   async loadTree() {
     let tree: Tree;
@@ -282,5 +310,54 @@ export const useStore = create<State>((set, get) => ({
 
   toggleBrowser() {
     set({ browserOpen: !get().browserOpen });
+  },
+
+  async checkForUpdates(manual = false) {
+    if (get().update?.status === "installing") return;
+    const update = await checkForUpdate();
+    if (!update) {
+      if (manual) get().notify("You're on the latest version");
+      return;
+    }
+    if (!manual && update.version === dismissedUpdate()) return;
+    void pendingUpdate?.close();
+    pendingUpdate = update;
+    set({ update: { version: update.version, status: "available", progress: null, error: null } });
+  },
+
+  installUpdate() {
+    const update = pendingUpdate;
+    if (!update || get().update?.status === "installing") return;
+    const install = async () => {
+      const patch = (p: Partial<UpdateState>) => {
+        const current = get().update;
+        if (current) set({ update: { ...current, ...p } });
+      };
+      patch({ status: "installing", progress: null, error: null });
+      try {
+        await installAndRelaunch(update, (progress) => patch({ progress }));
+      } catch (error) {
+        patch({ status: "error", error: errorMessage(error) });
+      }
+    };
+    const unsaved = get().tabs.filter(isDirty);
+    if (!unsaved.length) return void install();
+    get().setDialog({
+      kind: "confirm",
+      title: "Restart to update?",
+      message: `${unsaved.length === 1 ? "1 request has" : `${unsaved.length} requests have`} unsaved changes that will be lost when the app restarts.`,
+      confirmLabel: "Discard and update",
+      onConfirm: () => void install(),
+    });
+  },
+
+  dismissUpdate() {
+    const version = get().update?.version;
+    set({ update: null });
+    try {
+      if (version) localStorage.setItem(DISMISSED_UPDATE_KEY, version);
+    } catch {
+      // Then the next check offers it again, which is fine.
+    }
   },
 }));

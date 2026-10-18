@@ -29,3 +29,15 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
     </svg>
   );
 }
+
+/** The Stellarium star mark, from stellarium.sh's icon. */
+export function StarMark({ size = 48 }: { size?: number }) {
+  return (
+    <svg className="star-mark" width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <rect width="48" height="48" rx="10" fill="#102b31" />
+      <path d="M24 6v36M6 24h36" stroke="#d6f36a" strokeWidth="2.5" />
+      <path d="m11 11 26 26M37 11 11 37" stroke="#d6f36a" strokeWidth="1.75" opacity=".5" />
+      <circle cx="24" cy="24" r="6" fill="#d6f36a" />
+    </svg>
+  );
+}

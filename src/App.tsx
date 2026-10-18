@@ -5,6 +5,7 @@ import { Icon } from "./components/Icon";
 import { RequestView } from "./components/RequestView";
 import { ResourceBrowser } from "./components/ResourceBrowser";
 import { Sidebar } from "./components/Sidebar";
+import { UpdateToast } from "./components/UpdateToast";
 import { useStore } from "./store";
 import "./styles.css";
 
@@ -18,6 +19,17 @@ export default function App() {
     // Workspace files changed outside the app (an editor, git).
     const unlisten = listen("tree-changed", () => void loadTree());
     return () => void unlisten.then((stop) => stop());
+  }, []);
+
+  useEffect(() => {
+    // Check shortly after launch (not during it), then periodically for long-running sessions.
+    const check = () => void useStore.getState().checkForUpdates();
+    const first = setTimeout(check, 5000);
+    const every = setInterval(check, 6 * 60 * 60 * 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
   }, []);
 
   useEffect(() => {
@@ -55,6 +67,7 @@ export default function App() {
         <Icon name="panel" />
       </button>
       <Dialogs />
+      <UpdateToast />
       {toast && (
         <div className={`toast${toast.error ? " error" : ""}`} role="status">
           {toast.message}

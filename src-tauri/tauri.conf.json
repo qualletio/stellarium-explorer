@@ -32,6 +32,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYyOTVFNDcxQzM1RjZDQ0YKUldUUGJGL0RjZVNWOGlkTnNYQ2o4OXJWQ3RSejlMa1RqMGg5cndFZ1E1b045d01QQkVhbkFDVnMK",
+      "endpoints": [
+        "https://github.com/qualletio/stellarium-explorer/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

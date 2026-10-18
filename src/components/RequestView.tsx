@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { RunResult } from "../api";
 import { findNode, isDirty, pathTo, useStore, type Tab } from "../store";
 import { Editor } from "./Editor";
-import { Icon } from "./Icon";
+import { Icon, StarMark } from "./Icon";
 
 function TabBar() {
   const tabs = useStore((s) => s.tabs);
@@ -154,6 +154,7 @@ export function RequestView() {
       <main className="main">
         <TabBar />
         <div className="welcome">
+          <StarMark />
           <h1>Stellarium Explorer</h1>
           <p>Open a request from the sidebar, or create one from a collection’s menu.</p>
           <p className="muted">
