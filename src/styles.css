@@ -302,6 +302,14 @@ kbd {
   text-overflow: ellipsis;
 }
 
+.row .rename {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  user-select: text;
+}
+
 .row .row-action {
   visibility: hidden;
 }

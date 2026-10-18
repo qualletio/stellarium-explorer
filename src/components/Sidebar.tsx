@@ -26,6 +26,79 @@ async function act(action: () => Promise<unknown>) {
   }
 }
 
+const DEFAULT_NAMES = { collection: "New collection", folder: "New folder", request: "New request" };
+
+/** `base`, or `base 2`, `base 3`… if a sibling already has that name. */
+function defaultName(siblings: TreeNode[], base: string): string {
+  const taken = new Set(siblings.map((n) => n.name));
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
+/** Creates a node with a default name and starts renaming it in place. */
+async function createNode(kind: keyof typeof DEFAULT_NAMES, parent: TreeNode) {
+  const store = useStore.getState();
+  const name = defaultName(parent.children, DEFAULT_NAMES[kind]);
+  try {
+    const id =
+      kind === "collection"
+        ? await api.createCollection(parent.id, name)
+        : kind === "folder"
+          ? await api.createFolder(parent.id, name)
+          : await api.createRequest(parent.id, name);
+    await store.loadTree();
+    store.toggleExpanded(parent.id, true);
+    if (kind === "request") await store.openRequest(id);
+    else store.toggleExpanded(id, true);
+    store.setRenaming(id);
+  } catch (error) {
+    store.notify(errorMessage(error), true);
+  }
+}
+
+function RenameInput({ node }: { node: TreeNode }) {
+  const [name, setName] = useState(node.name);
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+
+  useEffect(() => {
+    // Wait a frame so a request's editor, which focuses when its tab opens, doesn't take focus back.
+    const frame = requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const finish = (save: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    useStore.getState().setRenaming(null);
+    const trimmed = name.trim();
+    if (save && trimmed && trimmed !== node.name) void act(() => api.updateDetails(node.id, trimmed, node.description ?? undefined));
+  };
+
+  return (
+    <input
+      ref={ref}
+      className="rename"
+      aria-label={`Name of ${node.name}`}
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      }}
+      onBlur={() => finish(true)}
+    />
+  );
+}
+
 export function confirmDelete(node: TreeNode) {
   const what = node.kind === "request" ? "request" : `${node.kind} and everything in it`;
   useStore.getState().setDialog({
@@ -62,9 +135,10 @@ function NodeMenu({ node, onClose }: { node: TreeNode; onClose: () => void }) {
   const container = node.kind === "collection" || node.kind === "folder";
   return (
     <div className="menu" role="menu" ref={ref}>
-      {container && item("New request", "request", () => setDialog({ kind: "details", mode: "create", nodeKind: "request", parentId: node.id }))}
-      {container && item("New folder", "folder", () => setDialog({ kind: "details", mode: "create", nodeKind: "folder", parentId: node.id }))}
-      {item(node.kind === "collection" ? "Rename and describe" : "Rename", "edit", () => setDialog({ kind: "details", mode: "edit", node }))}
+      {container && item("New request", "request", () => void createNode("request", node))}
+      {container && item("New folder", "folder", () => void createNode("folder", node))}
+      {item("Rename", "edit", () => useStore.getState().setRenaming(node.id))}
+      {node.kind === "collection" && item("Edit description", "edit", () => setDialog({ kind: "details", mode: "edit", node }))}
       {node.kind !== "folder" && item("Network settings", "network", () => setDialog({ kind: "network", node }))}
       {item("Delete", "trash", () => confirmDelete(node))}
     </div>
@@ -75,6 +149,7 @@ function NodeRow({ node, depth }: { node: TreeNode; depth: number }) {
   const expanded = useStore((s) => !!s.expanded[node.id]);
   const active = useStore((s) => s.activeTabId === node.id);
   const dirty = useStore((s) => s.tabs.some((t) => t.id === node.id && t.source !== t.saved));
+  const renaming = useStore((s) => s.renamingId === node.id);
   const { toggleExpanded, openRequest } = useStore.getState();
   const [menu, setMenu] = useState(false);
   const [dropping, setDropping] = useState(false);
@@ -103,7 +178,7 @@ function NodeRow({ node, depth }: { node: TreeNode; depth: number }) {
       <div
         className={`row${active ? " active" : ""}${dropping ? " dropping" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
-        draggable
+        draggable={!renaming}
         onDragStart={(e) => {
           dragging = node;
           e.dataTransfer.setData(DRAG_TYPE, node.id);
@@ -113,7 +188,13 @@ function NodeRow({ node, depth }: { node: TreeNode; depth: number }) {
         onDragOver={onDragOver}
         onDragLeave={() => setDropping(false)}
         onDrop={onDrop}
-        onClick={() => (isRequest ? openRequest(node.id) : toggleExpanded(node.id))}
+        onClick={(e) => {
+          // The second click of a double-click renames instead.
+          if (e.detail > 1) return;
+          if (isRequest) void openRequest(node.id);
+          else toggleExpanded(node.id);
+        }}
+        onDoubleClick={() => useStore.getState().setRenaming(node.id)}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu(true);
@@ -122,7 +203,7 @@ function NodeRow({ node, depth }: { node: TreeNode; depth: number }) {
       >
         <span className={`chevron${expanded ? " open" : ""}`}>{!isRequest && <Icon name="chevron" size={12} />}</span>
         <Icon name={ICONS[node.kind]} size={14} />
-        <span className="label">{node.name}</span>
+        {renaming ? <RenameInput node={node} /> : <span className="label">{node.name}</span>}
         {overridesNetwork && (
           <span className="badge" title="Sets its own network">
             <Icon name="network" size={11} />
@@ -136,6 +217,7 @@ function NodeRow({ node, depth }: { node: TreeNode; depth: number }) {
             e.stopPropagation();
             setMenu(!menu);
           }}
+          onDoubleClick={(e) => e.stopPropagation()}
         >
           <Icon name="more" />
         </button>
@@ -217,7 +299,7 @@ export function Sidebar() {
               className="icon-button"
               aria-label="New collection"
               title="New collection"
-              onClick={() => setDialog({ kind: "details", mode: "create", nodeKind: "collection", parentId: workspace.id })}
+              onClick={() => void createNode("collection", workspace)}
             >
               <Icon name="plus" />
             </button>
@@ -241,7 +323,7 @@ export function Sidebar() {
           {workspace.children.length === 0 && (
             <div className="empty-state">
               <p>Collections group related requests and can set their own network.</p>
-              <button onClick={() => setDialog({ kind: "details", mode: "create", nodeKind: "collection", parentId: workspace.id })}>New collection</button>
+              <button onClick={() => void createNode("collection", workspace)}>New collection</button>
             </div>
           )}
           <div className="sidebar-footer">
