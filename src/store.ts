@@ -55,6 +55,8 @@ interface State {
   activeTabId: string | null;
   catalogs: Record<string, CatalogState>;
   dialog: Dialog | null;
+  /** The sidebar node whose name is being edited in place. */
+  renamingId: string | null;
   toast: { message: string; error: boolean } | null;
   browserOpen: boolean;
   update: UpdateState | null;
@@ -72,6 +74,7 @@ interface State {
   refreshNetworks(): Promise<void>;
   loadCatalog(registryUrl: string, refresh?: boolean): Promise<Catalog | null>;
   setDialog(dialog: Dialog | null): void;
+  setRenaming(id: string | null): void;
   notify(message: string, error?: boolean): void;
   toggleBrowser(): void;
   /** `manual` checks report "up to date" and show versions the user said "later" to. */
@@ -150,6 +153,7 @@ export const useStore = create<State>((set, get) => ({
   activeTabId: null,
   catalogs: {},
   dialog: null,
+  renamingId: null,
   toast: null,
   browserOpen: true,
   update: null,
@@ -299,6 +303,10 @@ export const useStore = create<State>((set, get) => ({
 
   setDialog(dialog) {
     set({ dialog });
+  },
+
+  setRenaming(id) {
+    set({ renamingId: id });
   },
 
   notify(message, error = false) {
