@@ -48,12 +48,13 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
   const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hasEditor = useStore((s) => s.activeTabId !== null);
+  const revision = useStore((s) => s.resourcesRevision);
 
   useEffect(() => {
     setDetail(null);
     setError(null);
     resourceDetail(registryUrl, fqn).then((d) => (d ? setDetail(d) : setError("Couldn't load this resource")));
-  }, [registryUrl, fqn]);
+  }, [registryUrl, fqn, revision]);
 
   return (
     <div className="resource-detail">
@@ -126,6 +127,8 @@ export function ResourceBrowser() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const revision = useStore((s) => s.resourcesRevision);
+  const refreshing = useStore((s) => (registryUrl ? !!s.catalogs[registryUrl]?.loading : false));
 
   const search = async (offset: number) => {
     if (!registryUrl) return;
@@ -154,17 +157,28 @@ export function ResourceBrowser() {
     const timer = setTimeout(() => void search(0), 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registryUrl, q, field, paid, restricted]);
+  }, [registryUrl, q, field, paid, restricted, revision]);
 
   useEffect(() => setSelected(null), [registryUrl]);
 
   return (
     <aside className="browser" aria-label="Resource browser">
       <div className="browser-header">
-        <h2>Resources</h2>
-        <span className="muted registry" title={registryUrl ?? ""}>
-          {registryUrl ?? "No registry"}
-        </span>
+        <div>
+          <h2>Resources</h2>
+          <span className="muted registry" title={registryUrl ?? ""}>
+            {registryUrl ?? "No registry"}
+          </span>
+        </div>
+        <button
+          className={`icon-button${refreshing ? " spinning" : ""}`}
+          disabled={!registryUrl || refreshing}
+          onClick={() => registryUrl && void useStore.getState().refreshResources(registryUrl)}
+          title="Refresh resources and completions"
+          aria-label="Refresh resources"
+        >
+          <Icon name="refresh" size={14} />
+        </button>
       </div>
       {selected && registryUrl ? (
         <Detail registryUrl={registryUrl} fqn={selected} onBack={() => setSelected(null)} />
