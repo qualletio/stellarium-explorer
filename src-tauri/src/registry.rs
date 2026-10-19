@@ -212,8 +212,9 @@ impl Registry {
         Ok(detail)
     }
 
-    /// Every live resource on the registry. Served from memory for `TTL` unless `refresh`; when
-    /// the registry is unreachable, falls back to the last saved copy, marked `stale`.
+    /// Every live resource on the registry. Served from memory for `TTL` unless `refresh`, which
+    /// also drops the registry's cached details; when the registry is unreachable, falls back to
+    /// the last saved copy, marked `stale`.
     pub async fn catalog(&self, registry_url: &str, refresh: bool) -> AppResult<Catalog> {
         let base = registry_base(registry_url);
         if !refresh && let Some(catalog) = self.catalogs.lock().unwrap().get(&base).and_then(Cached::fresh) {
@@ -223,6 +224,9 @@ impl Registry {
             Ok(catalog) => {
                 self.catalogs.lock().unwrap().insert(base.clone(), Cached { value: catalog.clone(), at: Instant::now() });
                 self.save_catalog(&catalog);
+                if refresh {
+                    self.details.lock().unwrap().retain(|(registry, _), _| *registry != base);
+                }
                 Ok(catalog)
             }
             Err(error) => {
@@ -310,6 +314,19 @@ mod tests {
         })
     }
 
+    fn weather() -> serde_json::Value {
+        json!({
+            "fqn": "com.example.Weather", "path": "com.example", "name": "Weather", "baseUrl": "http://node",
+            "website": null, "description": "Forecasts",
+            "functions": [{
+                "name": "temperature", "returnType": "decimal", "description": null,
+                "parameters": [{ "name": "city", "type": "string", "description": "City name" }],
+                "paymentManifest": { "costLamports": 5000, "recipientAddress": "abc" }, "restricted": false,
+            }],
+            "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
+        })
+    }
+
     #[tokio::test]
     async fn pages_through_the_catalog() {
         let server = MockServer::start().await;
@@ -346,16 +363,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/v1/resources/com.example.Weather"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "fqn": "com.example.Weather", "path": "com.example", "name": "Weather", "baseUrl": "http://node",
-                "website": null, "description": "Forecasts",
-                "functions": [{
-                    "name": "temperature", "returnType": "decimal", "description": null,
-                    "parameters": [{ "name": "city", "type": "string", "description": "City name" }],
-                    "paymentManifest": { "costLamports": 5000, "recipientAddress": "abc" }, "restricted": false,
-                }],
-                "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(weather()))
             .expect(1)
             .mount(&server)
             .await;
@@ -374,5 +382,29 @@ mod tests {
 
         let error = registry.resource(&base, "missing.Thing").await.unwrap_err();
         assert_eq!(error.to_string(), "registry returned 404: Resource not found");
+    }
+
+    #[tokio::test]
+    async fn refreshing_the_catalog_drops_cached_details() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/resources"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": [summary("com.example.Weather", false)], "nextOffset": null })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/resources/com.example.Weather"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(weather()))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let registry = Registry::new(reqwest::Client::new(), None);
+        let base = format!("{}/v1/", server.uri());
+        registry.resource(&base, "com.example.Weather").await.unwrap();
+        registry.catalog(&base, false).await.unwrap();
+        registry.resource(&base, "com.example.Weather").await.unwrap();
+        registry.catalog(&base, true).await.unwrap();
+        registry.resource(&base, "com.example.Weather").await.unwrap();
     }
 }

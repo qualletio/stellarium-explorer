@@ -54,6 +54,8 @@ interface State {
   tabs: Tab[];
   activeTabId: string | null;
   catalogs: Record<string, CatalogState>;
+  /** Bumped by `refreshResources`, so views showing registry data refetch it. */
+  resourcesRevision: number;
   dialog: Dialog | null;
   /** The sidebar node whose name is being edited in place. */
   renamingId: string | null;
@@ -73,6 +75,8 @@ interface State {
   cancelRun(id: string): void;
   refreshNetworks(): Promise<void>;
   loadCatalog(registryUrl: string, refresh?: boolean): Promise<Catalog | null>;
+  /** Refetches a registry's catalog and resource details, for the browser and the editor. */
+  refreshResources(registryUrl: string): Promise<void>;
   setDialog(dialog: Dialog | null): void;
   setRenaming(id: string | null): void;
   notify(message: string, error?: boolean): void;
@@ -152,6 +156,7 @@ export const useStore = create<State>((set, get) => ({
   tabs: [],
   activeTabId: null,
   catalogs: {},
+  resourcesRevision: 0,
   dialog: null,
   renamingId: null,
   toast: null,
@@ -299,6 +304,13 @@ export const useStore = create<State>((set, get) => ({
       catalogRequests.set(key, request);
     }
     return request;
+  },
+
+  async refreshResources(registryUrl) {
+    // The backend drops its cached details once the catalog refetches, so clear ours after that.
+    await get().loadCatalog(registryUrl, true);
+    for (const key of detailRequests.keys()) if (key.startsWith(`${registryUrl} `)) detailRequests.delete(key);
+    set({ resourcesRevision: get().resourcesRevision + 1 });
   },
 
   setDialog(dialog) {

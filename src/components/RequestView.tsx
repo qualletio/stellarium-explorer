@@ -52,7 +52,7 @@ function TabBar() {
 function NetworkChips({ tab }: { tab: Tab }) {
   const tree = useStore((s) => s.tree.workspaces);
   const catalog = useStore((s) => (tab.network ? s.catalogs[tab.network.registryUrl] : undefined));
-  const { setDialog, loadCatalog } = useStore.getState();
+  const { setDialog, refreshResources } = useStore.getState();
   const node = findNode(tree, tab.id);
   const network = tab.network;
   if (!network) return null;
@@ -76,7 +76,13 @@ function NetworkChips({ tab }: { tab: Tab }) {
         {network.nodeUrl ?? "Not set"}
         {network.nodeKeyScope && <span title="Uses a saved API key"> 🔑</span>}
       </button>
-      <button className="icon-button" title={`Reload resources. ${registryStatus}`} aria-label="Reload resources" onClick={() => loadCatalog(network.registryUrl, true)}>
+      <button
+        className={`icon-button${catalog?.loading ? " spinning" : ""}`}
+        disabled={catalog?.loading}
+        title={`Reload resources. ${registryStatus}`}
+        aria-label="Reload resources"
+        onClick={() => refreshResources(network.registryUrl)}
+      >
         <Icon name="refresh" size={14} />
       </button>
     </div>

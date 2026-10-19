@@ -719,7 +719,19 @@ kbd {
 }
 
 .browser-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 10px 44px 6px 12px;
+}
+
+.browser-header > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.spinning .icon {
+  animation: spin 0.8s linear infinite;
 }
 
 .browser-header h2 {

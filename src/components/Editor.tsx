@@ -1,3 +1,4 @@
+import { forceLinting } from "@codemirror/lint";
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
@@ -59,7 +60,16 @@ export function Editor({ tabId, source, revision, visible }: Props) {
     });
     view.current = editor;
     editorViews.set(tabId, editor);
+    // Unknown-resource warnings depend on the catalog, so recheck when it's (re)loaded.
+    const catalogOf = (state: ReturnType<typeof useStore.getState>) => {
+      const url = state.tabs.find((t) => t.id === tabId)?.network?.registryUrl;
+      return url ? state.catalogs[url]?.catalog : undefined;
+    };
+    const unsubscribe = useStore.subscribe((state, previous) => {
+      if (catalogOf(state) !== catalogOf(previous)) forceLinting(editor);
+    });
     return () => {
+      unsubscribe();
       editorViews.delete(tabId);
       editor.destroy();
     };
