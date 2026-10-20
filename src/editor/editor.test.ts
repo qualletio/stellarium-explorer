@@ -36,7 +36,7 @@ const weather: ResourceDetail = {
         { name: "city", type: "string", description: null },
         { name: "units", type: "string", description: null },
       ],
-      paymentManifest: { costLamports: 5000, recipientAddress: "r" },
+      paymentManifest: { costMicroUsdc: 5000, recipientAddress: "r" },
       restricted: false,
     },
   ],

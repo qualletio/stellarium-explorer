@@ -31,8 +31,8 @@ pub struct Page<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceRange {
-    pub min_lamports: u64,
-    pub max_lamports: u64,
+    pub min_micro_usdc: u64,
+    pub max_micro_usdc: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +65,7 @@ pub struct FunctionParameter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentManifest {
-    pub cost_lamports: u64,
+    pub cost_micro_usdc: u64,
     pub recipient_address: String,
 }
 
@@ -321,7 +321,7 @@ mod tests {
             "functions": [{
                 "name": "temperature", "returnType": "decimal", "description": null,
                 "parameters": [{ "name": "city", "type": "string", "description": "City name" }],
-                "paymentManifest": { "costLamports": 5000, "recipientAddress": "abc" }, "restricted": false,
+                "paymentManifest": { "costMicroUsdc": 5000, "recipientAddress": "abc" }, "restricted": false,
             }],
             "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
         })
@@ -377,7 +377,7 @@ mod tests {
         let base = format!("{}/v1/", server.uri());
         let detail = registry.resource(&base, "com.example.Weather").await.unwrap();
         assert_eq!(detail.functions[0].parameters[0].ty, "string");
-        assert_eq!(detail.functions[0].payment_manifest.as_ref().unwrap().cost_lamports, 5000);
+        assert_eq!(detail.functions[0].payment_manifest.as_ref().unwrap().cost_micro_usdc, 5000);
         registry.resource(&base, "com.example.Weather").await.unwrap();
 
         let error = registry.resource(&base, "missing.Thing").await.unwrap_err();

@@ -1,17 +1,17 @@
 import type { PriceRange, ResourceFunction } from "./api";
 
-const LAMPORTS_PER_SOL = 1_000_000_000;
+const MICRO_USDC_PER_USDC = 1_000_000;
 
-/** `5000` becomes `0.000005 SOL`. */
-export function formatLamports(lamports: number): string {
-  const sol = lamports / LAMPORTS_PER_SOL;
-  return `${sol.toLocaleString(undefined, { maximumFractionDigits: 9 })} SOL`;
+/** `10000` becomes `0.01 USDC`. */
+export function formatUsdc(microUsdc: number): string {
+  const usdc = microUsdc / MICRO_USDC_PER_USDC;
+  return `${usdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USDC`;
 }
 
 export function formatPriceRange(price: PriceRange | null): string {
   if (!price) return "Free";
-  if (price.minLamports === price.maxLamports) return formatLamports(price.minLamports);
-  return `${formatLamports(price.minLamports)} – ${formatLamports(price.maxLamports)}`;
+  if (price.minMicroUsdc === price.maxMicroUsdc) return formatUsdc(price.minMicroUsdc);
+  return `${formatUsdc(price.minMicroUsdc)} – ${formatUsdc(price.maxMicroUsdc)}`;
 }
 
 /** `temperature(city: string): decimal` */
