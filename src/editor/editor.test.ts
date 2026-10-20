@@ -19,7 +19,9 @@ const summary = (fqn: string): ResourceSummary => ({
   matchedFunctions: [],
   price: null,
   paidFunctionCount: 0,
+  perTokenFunctionCount: 0,
   restrictedFunctionCount: 0,
+  inferenceFunctionCount: 0,
   lastSeenAt: "",
   removedAt: null,
 });
@@ -38,6 +40,7 @@ const weather: ResourceDetail = {
       ],
       paymentManifest: { costMicroUsdc: 5000, recipientAddress: "r" },
       restricted: false,
+      kind: "fixed",
     },
   ],
   host: null,
