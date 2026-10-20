@@ -53,7 +53,7 @@ export interface NetworkSettings {
 
 export type KeyUpdate = { action: "keep" } | { action: "set"; value: string } | { action: "clear" };
 
-// Registry wire types, mirroring @registry/types.
+// Registry wire types, mirroring @registry/types. Prices are integer micro-USDC (1 USDC = 1,000,000).
 
 export interface Page<T> {
   items: T[];
@@ -61,8 +61,8 @@ export interface Page<T> {
 }
 
 export interface PriceRange {
-  minLamports: number;
-  maxLamports: number;
+  minMicroUsdc: number;
+  maxMicroUsdc: number;
 }
 
 export interface ResourceSummary {
@@ -87,7 +87,7 @@ export interface FunctionParameter {
 }
 
 export interface PaymentManifest {
-  costLamports: number;
+  costMicroUsdc: number;
   recipientAddress: string;
 }
 

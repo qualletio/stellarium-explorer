@@ -1,6 +1,6 @@
 import { type Completion, type CompletionContext, type CompletionSource, snippet } from "@codemirror/autocomplete";
 import type { ResourceFunction, ResourceSummary } from "../api";
-import { formatLamports, formatPriceRange, signature } from "../format";
+import { formatUsdc, formatPriceRange, signature } from "../format";
 import { completionContext, findBindings, findVariables, KEYWORDS, TYPES } from "./analysis";
 import type { ResourceProvider } from "./provider";
 
@@ -42,7 +42,7 @@ function functionOption(fn: ResourceFunction): Completion {
     info: infoNode(
       signature(fn),
       fn.description,
-      fn.paymentManifest ? `Costs ${formatLamports(fn.paymentManifest.costLamports)} per call` : "Free",
+      fn.paymentManifest ? `Costs ${formatUsdc(fn.paymentManifest.costMicroUsdc)} per call` : "Free",
       fn.restricted && "Restricted: callers need a grant from the hosting node",
     ),
     apply: (view, completion, from, to) => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage, type Page, type ResourceDetail, type ResourceSummary, type SearchField } from "../api";
 import { findVariables } from "../editor/analysis";
-import { formatLamports, formatPriceRange, signature } from "../format";
+import { formatUsdc, formatPriceRange, signature } from "../format";
 import { resourceDetail, useStore } from "../store";
 import { editorViews } from "./Editor";
 import { Icon } from "./Icon";
@@ -94,7 +94,7 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
               <li key={fn.name}>
                 <code>{signature(fn)}</code>
                 <div className="tags">
-                  <span className="tag">{fn.paymentManifest ? formatLamports(fn.paymentManifest.costLamports) : "Free"}</span>
+                  <span className="tag">{fn.paymentManifest ? formatUsdc(fn.paymentManifest.costMicroUsdc) : "Free"}</span>
                   {fn.restricted && <span className="tag warn">Restricted</span>}
                 </div>
                 {fn.description && <p>{fn.description}</p>}
