@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage, type Page, type ResourceDetail, type ResourceSummary, type SearchField } from "../api";
 import { findVariables } from "../editor/analysis";
-import { formatUsdc, formatPriceRange, signature } from "../format";
+import { formatFunctionPrice, formatResourcePrice, signature } from "../format";
 import { resourceDetail, useStore } from "../store";
 import { editorViews } from "./Editor";
 import { Icon } from "./Icon";
@@ -94,7 +94,8 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
               <li key={fn.name}>
                 <code>{signature(fn)}</code>
                 <div className="tags">
-                  <span className="tag">{fn.paymentManifest ? formatUsdc(fn.paymentManifest.costMicroUsdc) : "Free"}</span>
+                  <span className="tag">{formatFunctionPrice(fn)}</span>
+                  {fn.kind === "inference" && <span className="tag">Inference</span>}
                   {fn.restricted && <span className="tag warn">Restricted</span>}
                 </div>
                 {fn.description && <p>{fn.description}</p>}
@@ -122,6 +123,7 @@ export function ResourceBrowser() {
   const [field, setField] = useState<SearchField>("all");
   const [paid, setPaid] = useState(false);
   const [restricted, setRestricted] = useState(false);
+  const [inference, setInference] = useState(false);
   const [results, setResults] = useState<ResourceSummary[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +142,7 @@ export function ResourceBrowser() {
         in: field,
         paid: paid || undefined,
         restricted: restricted || undefined,
+        inference: inference || undefined,
         offset,
         limit: 50,
       });
@@ -157,7 +160,7 @@ export function ResourceBrowser() {
     const timer = setTimeout(() => void search(0), 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registryUrl, q, field, paid, restricted, revision]);
+  }, [registryUrl, q, field, paid, restricted, inference, revision]);
 
   useEffect(() => setSelected(null), [registryUrl]);
 
@@ -201,6 +204,9 @@ export function ResourceBrowser() {
             <label>
               <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} /> Restricted
             </label>
+            <label>
+              <input type="checkbox" checked={inference} onChange={(e) => setInference(e.target.checked)} /> Inference
+            </label>
           </div>
           {error && <p className="form-error">{error}</p>}
           <ul className="results">
@@ -212,7 +218,8 @@ export function ResourceBrowser() {
                   {r.description && <span className="result-description">{r.description}</span>}
                   <span className="tags">
                     <span className="tag">{r.functionCount} fn</span>
-                    <span className="tag">{formatPriceRange(r.price)}</span>
+                    <span className="tag">{formatResourcePrice(r)}</span>
+                    {r.inferenceFunctionCount > 0 && <span className="tag">Inference</span>}
                     {r.restrictedFunctionCount > 0 && <span className="tag warn">Restricted</span>}
                     {r.matchedFunctions.map((f) => (
                       <span key={f} className="tag match">

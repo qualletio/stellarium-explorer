@@ -1,5 +1,5 @@
 import { hoverTooltip } from "@codemirror/view";
-import { formatUsdc, signature } from "../format";
+import { formatFunctionPrice, inferenceNote, signature } from "../format";
 import { symbolAt } from "./analysis";
 import type { ResourceProvider } from "./provider";
 
@@ -39,7 +39,8 @@ export function requestScriptHover(provider: ResourceProvider) {
           tooltipDom(
             signature(fn),
             fn.description,
-            fn.paymentManifest ? `Costs ${formatUsdc(fn.paymentManifest.costMicroUsdc)} per call` : "Free",
+            fn.paymentManifest ? `Costs ${formatFunctionPrice(fn)}` : "Free",
+            inferenceNote(fn),
             fn.restricted && "Restricted: callers need a grant from the hosting node",
           ),
       };

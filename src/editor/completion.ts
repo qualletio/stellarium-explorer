@@ -1,6 +1,6 @@
 import { type Completion, type CompletionContext, type CompletionSource, snippet } from "@codemirror/autocomplete";
 import type { ResourceFunction, ResourceSummary } from "../api";
-import { formatUsdc, formatPriceRange, signature } from "../format";
+import { formatFunctionPrice, formatResourcePrice, inferenceNote, signature } from "../format";
 import { completionContext, findBindings, findVariables, KEYWORDS, TYPES } from "./analysis";
 import type { ResourceProvider } from "./provider";
 
@@ -20,7 +20,8 @@ function infoNode(...lines: (string | null | undefined | false)[]): () => Node {
 
 function resourceOption(resource: ResourceSummary): Completion {
   const access = [
-    formatPriceRange(resource.price),
+    formatResourcePrice(resource),
+    resource.inferenceFunctionCount > 0 && `${resource.inferenceFunctionCount} inference`,
     resource.restrictedFunctionCount > 0 && `${resource.restrictedFunctionCount} restricted`,
   ].filter(Boolean);
   return {
@@ -42,7 +43,8 @@ function functionOption(fn: ResourceFunction): Completion {
     info: infoNode(
       signature(fn),
       fn.description,
-      fn.paymentManifest ? `Costs ${formatUsdc(fn.paymentManifest.costMicroUsdc)} per call` : "Free",
+      fn.paymentManifest ? `Costs ${formatFunctionPrice(fn)}` : "Free",
+      inferenceNote(fn),
       fn.restricted && "Restricted: callers need a grant from the hosting node",
     ),
     apply: (view, completion, from, to) => {

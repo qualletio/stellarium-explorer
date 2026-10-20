@@ -46,9 +46,16 @@ pub struct ResourceSummary {
     pub function_count: u32,
     #[serde(default)]
     pub matched_functions: Vec<String>,
+    /// Per-call prices of the fixed functions. Null when none is paid.
     pub price: Option<PriceRange>,
+    /// Paid functions of either kind.
     pub paid_function_count: u32,
+    /// Paid inference functions, priced per token and so not in `price`. Defaulted for catalogs saved before inference.
+    #[serde(default)]
+    pub per_token_function_count: u32,
     pub restricted_function_count: u32,
+    #[serde(default)]
+    pub inference_function_count: u32,
     pub last_seen_at: String,
     pub removed_at: Option<String>,
 }
@@ -62,11 +69,29 @@ pub struct FunctionParameter {
     pub description: Option<String>,
 }
 
+/// Its shape follows the function's `kind`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PaymentManifest {
-    pub cost_micro_usdc: u64,
-    pub recipient_address: String,
+#[serde(untagged)]
+pub enum PaymentManifest {
+    /// A flat price per call.
+    #[serde(rename_all = "camelCase")]
+    Fixed { cost_micro_usdc: u64, recipient_address: String },
+    /// Rates per million tokens. Either may be 0.
+    #[serde(rename_all = "camelCase")]
+    Inference {
+        input_cost_micro_usdc_per_million_tokens: u64,
+        output_cost_micro_usdc_per_million_tokens: u64,
+        recipient_address: String,
+    },
+}
+
+/// Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FunctionKind {
+    #[default]
+    Fixed,
+    Inference,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +103,8 @@ pub struct ResourceFunction {
     pub parameters: Vec<FunctionParameter>,
     pub payment_manifest: Option<PaymentManifest>,
     pub restricted: bool,
+    #[serde(default)]
+    pub kind: FunctionKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +157,8 @@ pub struct Stats {
     pub functions: u64,
     pub paid_functions: u64,
     pub restricted_functions: u64,
+    #[serde(default)]
+    pub inference_functions: u64,
     pub nodes: u64,
     pub source_url: String,
     pub last_sync: Option<SyncRun>,
@@ -147,6 +176,8 @@ pub struct SearchQuery {
     pub paid: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restricted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,7 +352,14 @@ mod tests {
             "functions": [{
                 "name": "temperature", "returnType": "decimal", "description": null,
                 "parameters": [{ "name": "city", "type": "string", "description": "City name" }],
-                "paymentManifest": { "costMicroUsdc": 5000, "recipientAddress": "abc" }, "restricted": false,
+                "paymentManifest": { "costMicroUsdc": 5000, "recipientAddress": "abc" }, "restricted": false, "kind": "fixed",
+            }, {
+                "name": "forecast", "returnType": "string", "description": null,
+                "parameters": [{ "name": "prompt", "type": "string", "description": null }, { "name": "maxTokens", "type": "int32", "description": null }],
+                "paymentManifest": {
+                    "inputCostMicroUsdcPerMillionTokens": 3000000, "outputCostMicroUsdcPerMillionTokens": 15000000, "recipientAddress": "abc",
+                },
+                "restricted": false, "kind": "inference",
             }],
             "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
         })
@@ -377,7 +415,12 @@ mod tests {
         let base = format!("{}/v1/", server.uri());
         let detail = registry.resource(&base, "com.example.Weather").await.unwrap();
         assert_eq!(detail.functions[0].parameters[0].ty, "string");
-        assert_eq!(detail.functions[0].payment_manifest.as_ref().unwrap().cost_micro_usdc, 5000);
+        assert!(matches!(detail.functions[0].payment_manifest, Some(PaymentManifest::Fixed { cost_micro_usdc: 5000, .. })));
+        assert_eq!(detail.functions[1].kind, FunctionKind::Inference);
+        assert!(matches!(
+            detail.functions[1].payment_manifest,
+            Some(PaymentManifest::Inference { input_cost_micro_usdc_per_million_tokens: 3_000_000, output_cost_micro_usdc_per_million_tokens: 15_000_000, .. })
+        ));
         registry.resource(&base, "com.example.Weather").await.unwrap();
 
         let error = registry.resource(&base, "missing.Thing").await.unwrap_err();

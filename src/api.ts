@@ -73,9 +73,14 @@ export interface ResourceSummary {
   description: string | null;
   functionCount: number;
   matchedFunctions: string[];
+  /** Per-call prices of the fixed functions. Null when none is paid. */
   price: PriceRange | null;
+  /** Paid functions of either kind. */
   paidFunctionCount: number;
+  /** Paid inference functions, priced per token and so not in `price`. */
+  perTokenFunctionCount: number;
   restrictedFunctionCount: number;
+  inferenceFunctionCount: number;
   lastSeenAt: string;
   removedAt: string | null;
 }
@@ -86,10 +91,27 @@ export interface FunctionParameter {
   description: string | null;
 }
 
-export interface PaymentManifest {
+/** A fixed function's flat price per call. */
+export interface FixedPaymentManifest {
   costMicroUsdc: number;
   recipientAddress: string;
 }
+
+/** An inference function's rates per million tokens. Either may be 0. */
+export interface InferencePaymentManifest {
+  inputCostMicroUsdcPerMillionTokens: number;
+  outputCostMicroUsdcPerMillionTokens: number;
+  recipientAddress: string;
+}
+
+/** Its shape follows the function's `kind`. */
+export type PaymentManifest = FixedPaymentManifest | InferencePaymentManifest;
+
+export const isInferenceManifest = (manifest: PaymentManifest): manifest is InferencePaymentManifest =>
+  "inputCostMicroUsdcPerMillionTokens" in manifest;
+
+/** Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token. */
+export type FunctionKind = "fixed" | "inference";
 
 export interface ResourceFunction {
   name: string;
@@ -98,6 +120,7 @@ export interface ResourceFunction {
   parameters: FunctionParameter[];
   paymentManifest: PaymentManifest | null;
   restricted: boolean;
+  kind: FunctionKind;
 }
 
 export interface NodeInfo {
@@ -130,6 +153,7 @@ export interface Stats {
   functions: number;
   paidFunctions: number;
   restrictedFunctions: number;
+  inferenceFunctions: number;
   nodes: number;
   sourceUrl: string;
 }
@@ -141,6 +165,7 @@ export interface SearchQuery {
   in?: SearchField;
   paid?: boolean;
   restricted?: boolean;
+  inference?: boolean;
   offset?: number;
   limit?: number;
 }
