@@ -32,14 +32,14 @@ const resource = (price: ResourceSummary["price"], perTokenFunctionCount: number
 describe("prices", () => {
   it("formats a function's flat or per-token price", () => {
     expect(formatFunctionPrice(fn(null))).toBe("Free");
-    expect(formatFunctionPrice(fn({ costMicroUsdc: 10_000, recipientAddress: "r" }))).toBe("0.01 USDC per call");
-    const manifest = { inputCostMicroUsdcPerMillionTokens: 3_000_000, outputCostMicroUsdcPerMillionTokens: 15_000_000, recipientAddress: "r" };
-    expect(formatFunctionPrice(fn(manifest, "inference"))).toBe("3.00 USDC in / 15.00 USDC out per 1M tokens");
+    expect(formatFunctionPrice(fn({ costMicroUsd: 10_000, recipientOrganizationId: "r" }))).toBe("$0.01 per call");
+    const manifest = { inputCostMicroUsdPerMillionTokens: 3_000_000, outputCostMicroUsdPerMillionTokens: 15_000_000, recipientOrganizationId: "r" };
+    expect(formatFunctionPrice(fn(manifest, "inference"))).toBe("$3.00 in / $15.00 out per 1M tokens");
   });
 
   it("doesn't call a resource with only per-token functions free", () => {
     expect(formatResourcePrice(resource(null, 0))).toBe("Free");
     expect(formatResourcePrice(resource(null, 1))).toBe("per token");
-    expect(formatResourcePrice(resource({ minMicroUsdc: 10_000, maxMicroUsdc: 10_000 }, 1))).toBe("0.01 USDC / per token");
+    expect(formatResourcePrice(resource({ minMicroUsd: 10_000, maxMicroUsd: 10_000 }, 1))).toBe("$0.01 / per token");
   });
 });

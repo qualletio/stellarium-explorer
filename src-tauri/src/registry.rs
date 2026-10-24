@@ -31,8 +31,11 @@ pub struct Page<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceRange {
-    pub min_micro_usdc: u64,
-    pub max_micro_usdc: u64,
+    /// Aliased so catalogs saved before Stellarium 0.17 priced in USD still load.
+    #[serde(alias = "minMicroUsdc")]
+    pub min_micro_usd: u64,
+    #[serde(alias = "maxMicroUsdc")]
+    pub max_micro_usd: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,13 +78,13 @@ pub struct FunctionParameter {
 pub enum PaymentManifest {
     /// A flat price per call.
     #[serde(rename_all = "camelCase")]
-    Fixed { cost_micro_usdc: u64, recipient_address: String },
+    Fixed { cost_micro_usd: u64, recipient_organization_id: String },
     /// Rates per million tokens. Either may be 0.
     #[serde(rename_all = "camelCase")]
     Inference {
-        input_cost_micro_usdc_per_million_tokens: u64,
-        output_cost_micro_usdc_per_million_tokens: u64,
-        recipient_address: String,
+        input_cost_micro_usd_per_million_tokens: u64,
+        output_cost_micro_usd_per_million_tokens: u64,
+        recipient_organization_id: String,
     },
 }
 
@@ -352,12 +355,12 @@ mod tests {
             "functions": [{
                 "name": "temperature", "returnType": "decimal", "description": null,
                 "parameters": [{ "name": "city", "type": "string", "description": "City name" }],
-                "paymentManifest": { "costMicroUsdc": 5000, "recipientAddress": "abc" }, "restricted": false, "kind": "fixed",
+                "paymentManifest": { "costMicroUsd": 5000, "recipientOrganizationId": "abc" }, "restricted": false, "kind": "fixed",
             }, {
                 "name": "forecast", "returnType": "string", "description": null,
                 "parameters": [{ "name": "prompt", "type": "string", "description": null }, { "name": "maxTokens", "type": "int32", "description": null }],
                 "paymentManifest": {
-                    "inputCostMicroUsdcPerMillionTokens": 3000000, "outputCostMicroUsdcPerMillionTokens": 15000000, "recipientAddress": "abc",
+                    "inputCostMicroUsdPerMillionTokens": 3000000, "outputCostMicroUsdPerMillionTokens": 15000000, "recipientOrganizationId": "abc",
                 },
                 "restricted": false, "kind": "inference",
             }],
@@ -415,11 +418,11 @@ mod tests {
         let base = format!("{}/v1/", server.uri());
         let detail = registry.resource(&base, "com.example.Weather").await.unwrap();
         assert_eq!(detail.functions[0].parameters[0].ty, "string");
-        assert!(matches!(detail.functions[0].payment_manifest, Some(PaymentManifest::Fixed { cost_micro_usdc: 5000, .. })));
+        assert!(matches!(detail.functions[0].payment_manifest, Some(PaymentManifest::Fixed { cost_micro_usd: 5000, .. })));
         assert_eq!(detail.functions[1].kind, FunctionKind::Inference);
         assert!(matches!(
             detail.functions[1].payment_manifest,
-            Some(PaymentManifest::Inference { input_cost_micro_usdc_per_million_tokens: 3_000_000, output_cost_micro_usdc_per_million_tokens: 15_000_000, .. })
+            Some(PaymentManifest::Inference { input_cost_micro_usd_per_million_tokens: 3_000_000, output_cost_micro_usd_per_million_tokens: 15_000_000, .. })
         ));
         registry.resource(&base, "com.example.Weather").await.unwrap();
 
