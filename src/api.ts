@@ -60,7 +60,7 @@ export interface NetworkSettings {
 /** How saving network settings treats the scope's secret: its API key, or its API client's secret. */
 export type KeyUpdate = { action: "keep" } | { action: "set"; value: string } | { action: "clear" };
 
-// Registry wire types, mirroring @registry/types. Prices are integer micro-USDC (1 USDC = 1,000,000).
+// Registry wire types, mirroring @registry/types. Prices are integer micro-USD (1 USD = 1,000,000).
 
 export interface Page<T> {
   items: T[];
@@ -68,8 +68,8 @@ export interface Page<T> {
 }
 
 export interface PriceRange {
-  minMicroUsdc: number;
-  maxMicroUsdc: number;
+  minMicroUsd: number;
+  maxMicroUsd: number;
 }
 
 export interface ResourceSummary {
@@ -100,22 +100,22 @@ export interface FunctionParameter {
 
 /** A fixed function's flat price per call. */
 export interface FixedPaymentManifest {
-  costMicroUsdc: number;
-  recipientAddress: string;
+  costMicroUsd: number;
+  recipientOrganizationId: string;
 }
 
 /** An inference function's rates per million tokens. Either may be 0. */
 export interface InferencePaymentManifest {
-  inputCostMicroUsdcPerMillionTokens: number;
-  outputCostMicroUsdcPerMillionTokens: number;
-  recipientAddress: string;
+  inputCostMicroUsdPerMillionTokens: number;
+  outputCostMicroUsdPerMillionTokens: number;
+  recipientOrganizationId: string;
 }
 
 /** Its shape follows the function's `kind`. */
 export type PaymentManifest = FixedPaymentManifest | InferencePaymentManifest;
 
 export const isInferenceManifest = (manifest: PaymentManifest): manifest is InferencePaymentManifest =>
-  "inputCostMicroUsdcPerMillionTokens" in manifest;
+  "inputCostMicroUsdPerMillionTokens" in manifest;
 
 /** Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token. */
 export type FunctionKind = "fixed" | "inference";
