@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import type { RunResult } from "../api";
+import { estimateMaxTokens } from "../editor/tokens";
 import { findNode, isDirty, pathTo, useStore, type Tab } from "../store";
 import { Editor } from "./Editor";
 import { Icon, StarMark } from "./Icon";
@@ -74,7 +75,11 @@ function NetworkChips({ tab }: { tab: Tab }) {
       <button className={`chip${network.nodeUrl ? "" : " warn"}`} onClick={() => node && setDialog({ kind: "network", node })}>
         <span className="chip-label">Node</span>
         {network.nodeUrl ?? "Not set"}
-        {network.nodeKeyScope && <span title="Uses a saved API key"> 🔑</span>}
+        {network.nodeClient ? (
+          <span title={`Runs as API client ${network.nodeClient.clientId}`}> · API client</span>
+        ) : (
+          network.nodeKeyScope && <span title="Uses a saved API key"> 🔑</span>
+        )}
       </button>
       <button
         className={`icon-button${catalog?.loading ? " spinning" : ""}`}
@@ -89,6 +94,23 @@ function NetworkChips({ tab }: { tab: Tab }) {
   );
 }
 
+/**
+ * The most script tokens a run of the source can execute: a node charging per token can't charge for
+ * more. Recomputed as the source changes, behind typing.
+ */
+function TokenCounter({ source }: { source: string }) {
+  const deferred = useDeferredValue(source);
+  const max = useMemo(() => estimateMaxTokens(deferred), [deferred]);
+  return (
+    <span
+      className="token-count"
+      title="The most script tokens a run can execute. Nodes that charge per token bill only the tokens a run executes, so branches it doesn't take cost nothing."
+    >
+      Max {max === null ? "—" : max.toLocaleString()} tokens
+    </span>
+  );
+}
+
 function ResultView({ result }: { result: RunResult }) {
   const [view, setView] = useState<"result" | "raw">("result");
   const ok = result.error === null;
@@ -98,6 +120,7 @@ function ResultView({ result }: { result: RunResult }) {
       <div className="response-header">
         <span className={`status ${ok ? "ok" : "fail"}`}>{result.status ?? "—"}</span>
         <span className="muted">{result.durationMs} ms</span>
+        {result.usageTokens !== null && <span className="muted" title="Script tokens the run executed">{result.usageTokens.toLocaleString()} tokens</span>}
         <div className="segmented">
           <button className={view === "result" ? "on" : ""} onClick={() => setView("result")}>
             Result
@@ -188,6 +211,7 @@ export function RequestView() {
           <strong>{tab.name}</strong>
         </div>
         <NetworkChips tab={tab} />
+        <TokenCounter source={tab.source} />
         <button onClick={() => saveTab(tab.id)} disabled={!isDirty(tab)} title="Save (⌘S)">
           Save
         </button>

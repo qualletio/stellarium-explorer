@@ -1,6 +1,17 @@
 # stellarium-explorer
 A desktop app explorer for writing and executing requests, and browsing Stellarium networks.
 
+## Running requests
+
+Each workspace, collection or request can set the node that runs its requests, under **Network settings**. Requests use their own settings first, then their collection's, then their workspace's. A node's credentials come from the same scope as the node:
+
+- **API key**: the node operator's `API_KEY`.
+- **API client**: a client ID and secret from the [Stellarium Platform](https://platform.stellarium.sh)'s API clients page, and the operator API that issues run tokens (for example `https://operator.stellarium.sh/v1`). The app exchanges them for a run token, which lasts 15 minutes, and reuses it until shortly before it expires. On another organization's node, runs are paid from your organization's balance.
+
+Secrets are kept in the OS keychain, never in workspace files.
+
+The request page shows the most script tokens the request can execute. Nodes that charge per token bill only the tokens a run executes, which the response header shows after each run.
+
 ## Running locally
 
 The app is built with [Tauri 2](https://tauri.app): a React + Vite frontend in `src/` and a Rust backend in `src-tauri/`.
@@ -41,6 +52,8 @@ Release builds also produce signed updater artifacts, so `TAURI_SIGNING_PRIVATE_
 pnpm test    # frontend unit tests (Vitest)
 pnpm check   # type-check, frontend tests, cargo test, and cargo clippy
 ```
+
+`cargo test -- --ignored` in `src-tauri` runs tests against a live registry, node and operator. See `live_registry_and_node` and `live_api_client` in `src-tauri/src/state.rs` for the environment they need.
 
 ## Releasing
 

@@ -264,7 +264,7 @@ export const useStore = create<State>((set, get) => ({
       const result = await api.runRequest(id, tab.source, runId);
       update({ result, runId: null });
     } catch (error) {
-      update({ result: { status: null, durationMs: 0, returnValue: null, body: "", error: errorMessage(error) }, runId: null });
+      update({ result: { status: null, durationMs: 0, returnValue: null, usageTokens: null, body: "", error: errorMessage(error) }, runId: null });
     }
   },
 

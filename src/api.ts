@@ -6,8 +6,12 @@ export type NodeKind = "workspace" | "collection" | "folder" | "request";
 export interface NetworkConfig {
   registryUrl?: string;
   nodeUrl?: string;
-  /** The scope keeps an API key for its node in the OS keychain. */
+  /** The scope keeps a secret for its node in the OS keychain: its API key, or with `clientId` its API client's secret. */
   nodeKey?: boolean;
+  /** The operator API that issues the API client's run tokens, including `/v1`. Set with `clientId`. */
+  operatorUrl?: string;
+  /** An API client for the node, used instead of an API key. */
+  clientId?: string;
 }
 
 export interface TreeNode {
@@ -44,6 +48,8 @@ export interface ResolvedNetwork {
   nodeUrl: string | null;
   nodeFrom: ScopeRef | null;
   nodeKeyScope: string | null;
+  /** The API client the node's runs use, from the same scope as the node. */
+  nodeClient: { operatorUrl: string; clientId: string } | null;
 }
 
 export interface NetworkSettings {
@@ -51,6 +57,7 @@ export interface NetworkSettings {
   inherited: ResolvedNetwork;
 }
 
+/** How saving network settings treats the scope's secret: its API key, or its API client's secret. */
 export type KeyUpdate = { action: "keep" } | { action: "set"; value: string } | { action: "clear" };
 
 // Registry wire types, mirroring @registry/types. Prices are integer micro-USDC (1 USDC = 1,000,000).
@@ -181,6 +188,8 @@ export interface RunResult {
   status: number | null;
   durationMs: number;
   returnValue: unknown;
+  /** The script tokens the run executed, as the node reports them. */
+  usageTokens: number | null;
   body: string;
   error: string | null;
 }
