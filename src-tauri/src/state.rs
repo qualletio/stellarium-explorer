@@ -9,7 +9,7 @@ use crate::config::{self, ResolvedNetwork};
 use crate::error::AppResult;
 use crate::model::{NetworkConfig, NodeKind};
 use crate::registry::Registry;
-use crate::runner::{self, RunResult};
+use crate::runner::{self, Auth, ClientCredentials, RunResult, TokenCache};
 use crate::secrets::SecretStore;
 use crate::storage::Storage;
 
@@ -19,6 +19,7 @@ pub struct AppState {
     pub registry: Registry,
     pub http: reqwest::Client,
     runs: Mutex<HashMap<String, oneshot::Sender<()>>>,
+    tokens: TokenCache,
 }
 
 /// What the network settings dialog shows for one scope.
@@ -31,7 +32,7 @@ pub struct NetworkSettings {
     pub inherited: ResolvedNetwork,
 }
 
-/// How `set_network` treats the node API key.
+/// How `set_network` treats the node's secret: its API key, or its API client's secret.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "action", content = "value", rename_all = "camelCase")]
 pub enum KeyUpdate {
@@ -42,7 +43,7 @@ pub enum KeyUpdate {
 
 impl AppState {
     pub fn new(storage: Storage, secrets: Box<dyn SecretStore>, registry: Registry, http: reqwest::Client) -> Self {
-        Self { storage, secrets, registry, http, runs: Mutex::default() }
+        Self { storage, secrets, registry, http, runs: Mutex::default(), tokens: TokenCache::default() }
     }
 
     pub fn resolve_network(&self, id: Uuid) -> AppResult<ResolvedNetwork> {
@@ -57,15 +58,18 @@ impl AppState {
     }
 
     pub fn set_network(&self, id: Uuid, network: NetworkConfig, key: KeyUpdate) -> AppResult<()> {
-        let had_key = self.storage.scopes(id)?.first().is_some_and(|s| s.id == id && s.network.node_key);
+        let own = self.storage.scopes(id)?.into_iter().next().filter(|s| s.id == id).map(|s| s.network);
+        let had_key = own.as_ref().is_some_and(|n| n.node_key);
         let mut network = network.normalized();
         let has_node = network.node_url.is_some();
+        // A saved API key isn't a client secret, and one client's secret isn't another's.
+        let same_credential = own.as_ref().is_some_and(|n| n.client_id == network.client_id);
         network.node_key = match &key {
             KeyUpdate::Set(secret) if has_node && !secret.trim().is_empty() => {
                 self.secrets.set(id, secret.trim())?;
                 true
             }
-            KeyUpdate::Keep => had_key && has_node,
+            KeyUpdate::Keep => had_key && has_node && same_credential,
             _ => false,
         };
         if had_key && !network.node_key {
@@ -90,24 +94,24 @@ impl AppState {
         }
         let network = self.resolve_network(id)?;
         let Some(node_url) = network.node_url else {
-            return Ok(RunResult {
-                status: None,
-                duration_ms: 0,
-                return_value: None,
-                body: String::new(),
-                error: Some("No node is configured. Set a node URL in the workspace, collection or request network settings.".into()),
-            });
+            return Ok(RunResult::failed(0, "No node is configured. Set a node URL in the workspace, collection or request network settings."));
         };
-        let api_key = match network.node_key_scope {
+        let secret = match network.node_key_scope {
             Some(scope) => self.secrets.get(scope)?,
             None => None,
+        };
+        let auth = match (network.node_client, secret) {
+            (Some(client), Some(secret)) => Some(Auth::Client(ClientCredentials { operator_url: client.operator_url, client_id: client.client_id, secret })),
+            (Some(_), None) => return Ok(RunResult::failed(0, "The API client's secret isn't saved. Add it in the network settings.")),
+            (None, Some(key)) => Some(Auth::ApiKey(key)),
+            (None, None) => None,
         };
 
         let (cancel_tx, cancel_rx) = oneshot::channel();
         self.runs.lock().unwrap().insert(run_id.clone(), cancel_tx);
         let result = tokio::select! {
-            result = runner::run(&self.http, &node_url, api_key.as_deref(), source) => result,
-            _ = cancel_rx => RunResult { status: None, duration_ms: 0, return_value: None, body: String::new(), error: Some("Cancelled".into()) },
+            result = runner::run(&self.http, &self.tokens, &node_url, auth.as_ref(), source) => result,
+            _ = cancel_rx => RunResult::failed(0, "Cancelled"),
         };
         self.runs.lock().unwrap().remove(&run_id);
         Ok(result)
@@ -156,6 +160,41 @@ mod tests {
         assert_eq!(s.secrets.get(ws).unwrap(), None);
     }
 
+    #[test]
+    fn switching_between_an_api_key_and_a_client_needs_a_new_secret() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = state(tmp.path());
+        let ws = s.storage.create_workspace("ws", None, None).unwrap();
+        let node = NetworkConfig { node_url: Some("http://node".into()), ..Default::default() };
+        let client = |id: &str| NetworkConfig { operator_url: Some("http://operator/v1".into()), client_id: Some(id.into()), ..node.clone() };
+
+        s.set_network(ws, node.clone(), KeyUpdate::Set("api-key".into())).unwrap();
+        s.set_network(ws, client("cli_1"), KeyUpdate::Keep).unwrap();
+        assert_eq!(s.secrets.get(ws).unwrap(), None, "the API key isn't kept as the client's secret");
+
+        s.set_network(ws, client("cli_1"), KeyUpdate::Set("cs_1".into())).unwrap();
+        s.set_network(ws, client("cli_1"), KeyUpdate::Keep).unwrap();
+        assert_eq!(s.secrets.get(ws).unwrap().as_deref(), Some("cs_1"));
+        assert_eq!(s.resolve_network(ws).unwrap().node_client.map(|c| c.client_id).as_deref(), Some("cli_1"));
+
+        s.set_network(ws, client("cli_2"), KeyUpdate::Keep).unwrap();
+        assert_eq!(s.secrets.get(ws).unwrap(), None, "another client needs its own secret");
+    }
+
+    #[tokio::test]
+    async fn explains_a_missing_client_secret() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = state(tmp.path());
+        let ws = s.storage.create_workspace("ws", None, None).unwrap();
+        let col = s.storage.create_collection(ws, "col", None).unwrap();
+        let req = s.storage.create_request(col, "req").unwrap();
+        let client = NetworkConfig { node_url: Some("http://node".into()), operator_url: Some("http://operator".into()), client_id: Some("cli_1".into()), ..Default::default() };
+        s.set_network(ws, client, KeyUpdate::Keep).unwrap();
+
+        let result = s.run_request(req, "request R {}", "run-1".into()).await.unwrap();
+        assert!(result.error.unwrap().starts_with("The API client's secret isn't saved"));
+    }
+
     #[tokio::test]
     async fn explains_a_missing_node() {
         let tmp = tempfile::tempdir().unwrap();
@@ -191,5 +230,26 @@ mod tests {
         let result = s.run_request(req, &env("E2E_SOURCE"), "live".into()).await.unwrap();
         assert_eq!(result.error, None, "{}", result.body);
         println!("catalog: {} resources; returnValue: {}", catalog.items.len(), result.return_value.unwrap());
+    }
+
+    /// Against a real operator and node, as an API client. Run with
+    /// `E2E_OPERATOR=http://localhost:3001/v1 E2E_NODE=http://localhost:3002 E2E_CLIENT_ID=... E2E_CLIENT_SECRET=... E2E_SOURCE='request R {...}' cargo test live_api_client -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_api_client() {
+        let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("set {name}"));
+        let tmp = tempfile::tempdir().unwrap();
+        let s = state(tmp.path());
+        let ws = s.storage.create_workspace("ws", None, None).unwrap();
+        let col = s.storage.create_collection(ws, "col", None).unwrap();
+        let req = s.storage.create_request(col, "req").unwrap();
+        let network = NetworkConfig { node_url: Some(env("E2E_NODE")), operator_url: Some(env("E2E_OPERATOR")), client_id: Some(env("E2E_CLIENT_ID")), ..Default::default() };
+        s.set_network(col, network, KeyUpdate::Set(env("E2E_CLIENT_SECRET"))).unwrap();
+
+        for attempt in 1..=2 {
+            let result = s.run_request(req, &env("E2E_SOURCE"), format!("live-{attempt}")).await.unwrap();
+            assert_eq!(result.error, None, "{}", result.body);
+            println!("run {attempt}: returnValue {} using {:?} tokens in {} ms", result.return_value.unwrap(), result.usage_tokens, result.duration_ms);
+        }
     }
 }

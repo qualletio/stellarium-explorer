@@ -2,8 +2,8 @@
 //!
 //! Each setting resolves on its own, nearest scope first (request, then collection, then
 //! workspace), so a request can override just the node and still inherit the registry.
-//! The node API key travels with the node URL: it comes from the same scope, so a key set
-//! for one node is never sent to a node configured elsewhere.
+//! The node's credentials travel with the node URL: its API key or API client comes from the
+//! same scope, so credentials set for one node are never sent to a node configured elsewhere.
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -29,8 +29,18 @@ pub struct ResolvedNetwork {
     pub registry_from: Option<ScopeRef>,
     pub node_url: Option<String>,
     pub node_from: Option<ScopeRef>,
-    /// The scope whose keychain entry holds the node's API key, if it has one.
+    /// The scope whose keychain entry holds the node's secret, if it has one: its API key, or its
+    /// API client's secret.
     pub node_key_scope: Option<Uuid>,
+    /// The API client the node's runs use, when its scope sets one.
+    pub node_client: Option<NodeClient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeClient {
+    pub operator_url: String,
+    pub client_id: String,
 }
 
 /// Resolves settings from `scopes`, nearest first.
@@ -41,6 +51,9 @@ pub fn resolve(scopes: &[Scope]) -> ResolvedNetwork {
         registry_url: registry.as_ref().map_or_else(|| MAINNET_REGISTRY_URL.to_string(), |(url, _)| url.clone()),
         registry_from: registry.map(|(_, s)| ScopeRef { id: s.id, kind: s.kind }),
         node_key_scope: node.as_ref().and_then(|(_, s)| s.network.node_key.then_some(s.id)),
+        node_client: node.as_ref().and_then(|(_, s)| {
+            Some(NodeClient { operator_url: s.network.operator_url.clone()?, client_id: s.network.client_id.clone()? })
+        }),
         node_from: node.as_ref().map(|(_, s)| ScopeRef { id: s.id, kind: s.kind }),
         node_url: node.map(|(url, _)| url),
     }
@@ -48,6 +61,15 @@ pub fn resolve(scopes: &[Scope]) -> ResolvedNetwork {
 
 /// The registry API base with a single trailing `/v1`, accepting input with or without it.
 pub fn registry_base(url: &str) -> String {
+    api_base(url)
+}
+
+/// The operator API base with a single trailing `/v1`, accepting input with or without it.
+pub fn operator_base(url: &str) -> String {
+    api_base(url)
+}
+
+fn api_base(url: &str) -> String {
     let url = url.trim().trim_end_matches('/');
     if url.ends_with("/v1") { url.to_string() } else { format!("{url}/v1") }
 }
@@ -64,7 +86,7 @@ mod tests {
     use crate::model::NetworkConfig;
 
     fn scope(kind: NodeKind, registry: Option<&str>, node: Option<&str>, key: bool) -> Scope {
-        Scope { id: Uuid::new_v4(), kind, network: NetworkConfig { registry_url: registry.map(Into::into), node_url: node.map(Into::into), node_key: key } }
+        Scope { id: Uuid::new_v4(), kind, network: NetworkConfig { registry_url: registry.map(Into::into), node_url: node.map(Into::into), node_key: key, ..Default::default() } }
     }
 
     #[test]
@@ -92,6 +114,25 @@ mod tests {
         let resolved = resolve(&[scope(NodeKind::Request, None, None, false), col, ws.clone()]);
         assert_eq!(resolved.node_url.as_deref(), Some("http://ws-node"));
         assert_eq!(resolved.node_key_scope, Some(ws.id));
+    }
+
+    #[test]
+    fn an_api_client_travels_with_its_node() {
+        let client = |node: &str| NetworkConfig {
+            node_url: Some(node.into()),
+            node_key: true,
+            operator_url: Some("http://operator/v1".into()),
+            client_id: Some("cli_1".into()),
+            ..Default::default()
+        };
+        let ws = Scope { id: Uuid::new_v4(), kind: NodeKind::Workspace, network: client("http://ws-node") };
+        let resolved = resolve(&[scope(NodeKind::Request, None, None, false), ws.clone()]);
+        assert_eq!(resolved.node_client, Some(NodeClient { operator_url: "http://operator/v1".into(), client_id: "cli_1".into() }));
+        assert_eq!(resolved.node_key_scope, Some(ws.id));
+
+        // A request that sets its own node doesn't send the workspace's client to it.
+        let resolved = resolve(&[scope(NodeKind::Request, None, Some("http://req-node"), false), ws]);
+        assert_eq!(resolved.node_client, None);
     }
 
     #[test]

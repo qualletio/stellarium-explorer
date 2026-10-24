@@ -481,6 +481,13 @@ kbd {
   color: var(--warn);
 }
 
+.token-count {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .chip-label {
   margin-right: 6px;
   color: var(--muted);

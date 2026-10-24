@@ -635,12 +635,12 @@ mod tests {
         let req = s.create_request(col, "req").unwrap();
 
         s.save_request_source(req, "request X {}").unwrap();
-        s.set_network(col, NetworkConfig { registry_url: Some(" http://r/v1 ".into()), node_url: Some("".into()), node_key: true }).unwrap();
+        s.set_network(col, NetworkConfig { registry_url: Some(" http://r/v1 ".into()), node_url: Some("".into()), node_key: true, ..Default::default() }).unwrap();
         s.set_network(req, NetworkConfig { node_url: Some("http://n".into()), node_key: true, ..Default::default() }).unwrap();
 
         let scopes = s.scopes(req).unwrap();
         assert_eq!(scopes.iter().map(|sc| sc.id).collect::<Vec<_>>(), vec![req, col, ws]);
-        assert_eq!(scopes[1].network, NetworkConfig { registry_url: Some("http://r/v1".into()), node_url: None, node_key: false });
+        assert_eq!(scopes[1].network, NetworkConfig { registry_url: Some("http://r/v1".into()), node_url: None, node_key: false, ..Default::default() });
         assert!(scopes[0].network.node_key);
         assert_eq!(storage(tmp.path()).read_request(req).unwrap().source, "request X {}");
     }

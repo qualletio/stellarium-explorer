@@ -118,6 +118,10 @@ function NetworkDialog({ node, onClose }: { node: TreeNode; onClose: () => void 
   const [settings, setSettings] = useState<NetworkSettings | null>(null);
   const [registryUrl, setRegistryUrl] = useState("");
   const [nodeUrl, setNodeUrl] = useState("");
+  // A scope authenticates to its node with an API key, or as an API client that gets run tokens from an operator.
+  const [authMode, setAuthMode] = useState<"key" | "client">("key");
+  const [operatorUrl, setOperatorUrl] = useState("");
+  const [clientId, setClientId] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +134,9 @@ function NetworkDialog({ node, onClose }: { node: TreeNode; onClose: () => void 
         setSettings(s);
         setRegistryUrl(s.own.registryUrl ?? "");
         setNodeUrl(s.own.nodeUrl ?? "");
+        setAuthMode(s.own.clientId ? "client" : "key");
+        setOperatorUrl(s.own.operatorUrl ?? "");
+        setClientId(s.own.clientId ?? "");
       })
       .catch((e) => setError(errorMessage(e)));
   }, [node.id]);
@@ -140,7 +147,8 @@ function NetworkDialog({ node, onClose }: { node: TreeNode; onClose: () => void 
     setError(null);
     const key: KeyUpdate = apiKey.trim() ? { action: "set", value: apiKey } : clearKey ? { action: "clear" } : { action: "keep" };
     try {
-      await api.setNetwork(node.id, { registryUrl, nodeUrl }, key);
+      const client = authMode === "client" ? { operatorUrl, clientId } : {};
+      await api.setNetwork(node.id, { registryUrl, nodeUrl, ...client }, key);
       const store = useStore.getState();
       await store.loadTree();
       onClose();
@@ -151,7 +159,11 @@ function NetworkDialog({ node, onClose }: { node: TreeNode; onClose: () => void 
   };
 
   const inherited: ResolvedNetwork | undefined = settings?.inherited;
-  const hasKey = !!settings?.own.nodeKey && !clearKey;
+  // A saved secret belongs to one kind of credential, and to one client: switching needs a new one.
+  const savedMode = settings?.own.clientId ? "client" : "key";
+  const sameCredential = authMode === savedMode && (authMode === "key" || clientId.trim() === (settings?.own.clientId ?? ""));
+  const hasKey = !!settings?.own.nodeKey && !clearKey && sameCredential;
+  const hasNode = !!nodeUrl.trim();
   return (
     <Modal title={`Network for “${node.name}”`} onClose={onClose}>
       <p className="hint">
@@ -170,22 +182,52 @@ function NetworkDialog({ node, onClose }: { node: TreeNode; onClose: () => void 
             {nodeUrl.trim()
               ? "Requests run with POST /v1/run on this node"
               : inherited?.nodeUrl
-                ? `${describeOrigin(inherited.nodeFrom, tree)}: ${inherited.nodeUrl}${inherited.nodeKeyScope ? " (with its API key)" : ""}`
+                ? `${describeOrigin(inherited.nodeFrom, tree)}: ${inherited.nodeUrl}${inherited.nodeClient ? " (as its API client)" : inherited.nodeKeyScope ? " (with its API key)" : ""}`
                 : "No node is set yet, so requests can't run"}
           </small>
         </label>
+        <div className="field">
+          Authenticate with
+          <div className="segmented" role="radiogroup" aria-label="Authenticate with">
+            <button type="button" role="radio" aria-checked={authMode === "key"} className={authMode === "key" ? "on" : ""} onClick={() => setAuthMode("key")} disabled={!hasNode}>
+              API key
+            </button>
+            <button type="button" role="radio" aria-checked={authMode === "client"} className={authMode === "client" ? "on" : ""} onClick={() => setAuthMode("client")} disabled={!hasNode}>
+              API client
+            </button>
+          </div>
+          <small>
+            {authMode === "key"
+              ? "The node operator's API key."
+              : "An API client from the Stellarium Platform. Runs on another organization's node are paid from your balance."}
+          </small>
+        </div>
+        {authMode === "client" && (
+          <>
+            <label>
+              Operator API
+              <input value={operatorUrl} onChange={(e) => setOperatorUrl(e.target.value)} placeholder="https://operator.stellarium.sh/v1" spellCheck={false} disabled={!hasNode} required={hasNode} />
+              <small>Exchanges the client for run tokens, which last 15 minutes.</small>
+            </label>
+            <label>
+              Client ID
+              <input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="cli_…" spellCheck={false} disabled={!hasNode} required={hasNode} />
+            </label>
+          </>
+        )}
         <label>
-          Node API key
+          {authMode === "key" ? "Node API key" : "Client secret"}
           <input
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={hasKey ? "Saved in the keychain. Type to replace it" : "Optional"}
-            disabled={!nodeUrl.trim()}
+            placeholder={hasKey ? "Saved in the keychain. Type to replace it" : authMode === "key" ? "Optional" : "cs_…"}
+            disabled={!hasNode}
+            required={hasNode && authMode === "client" && !hasKey}
             autoComplete="off"
           />
           <small>
-            {nodeUrl.trim() ? "Kept in the OS keychain, never in workspace files." : "A key belongs to a node. Set a node here to give it a key."}
+            {hasNode ? "Kept in the OS keychain, never in workspace files." : "Credentials belong to a node. Set a node here to give it some."}
             {hasKey && !apiKey && (
               <>
                 {" "}

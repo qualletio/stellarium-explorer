@@ -27,15 +27,21 @@ pub struct NetworkConfig {
     /// The node that runs requests (`POST {nodeUrl}/v1/run`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_url: Option<String>,
-    /// Whether this scope keeps an API key for its node in the OS keychain, under the scope's id.
-    /// The key itself is never written to disk.
+    /// Whether this scope keeps a secret for its node in the OS keychain, under the scope's id: the
+    /// node's API key, or with `client_id` the API client's secret. It is never written to disk.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub node_key: bool,
+    /// The operator API that issues the API client's run tokens, such as `https://operator.stellarium.sh/v1`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_url: Option<String>,
+    /// An API client for the node. Runs exchange it and its secret for a run token instead of sending an API key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
 }
 
 impl NetworkConfig {
     pub fn is_empty(&self) -> bool {
-        self.registry_url.is_none() && self.node_url.is_none() && !self.node_key
+        self.registry_url.is_none() && self.node_url.is_none() && !self.node_key && self.operator_url.is_none() && self.client_id.is_none()
     }
 
     /// Trims fields and drops empty ones, so a cleared input means "inherit".
@@ -43,9 +49,17 @@ impl NetworkConfig {
         let clean = |value: Option<String>| value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
         self.registry_url = clean(self.registry_url);
         self.node_url = clean(self.node_url);
+        self.operator_url = clean(self.operator_url);
+        self.client_id = clean(self.client_id);
         if self.node_url.is_none() {
-            // A key only makes sense next to the node it belongs to.
+            // Credentials only make sense next to the node they belong to.
             self.node_key = false;
+            self.client_id = None;
+        }
+        if self.client_id.is_none() || self.operator_url.is_none() {
+            // An API client needs both, and an operator URL alone means nothing.
+            self.client_id = None;
+            self.operator_url = None;
         }
         self
     }
