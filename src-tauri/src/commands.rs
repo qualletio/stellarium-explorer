@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::config::ResolvedNetwork;
 use crate::error::AppResult;
 use crate::model::{NetworkConfig, RequestDoc, Tree};
-use crate::registry::{Catalog, Page, ResourceDetail, ResourceSummary, SearchQuery, Stats};
+use crate::registry::{Catalog, ContractVersion, Page, ResourceDetail, ResourceSummary, SearchQuery, Stats};
 use crate::runner::RunResult;
 use crate::state::{AppState, KeyUpdate, NetworkSettings};
 use crate::watcher::Watcher;
@@ -115,6 +115,11 @@ pub async fn search_resources(state: State<'_, AppState>, registry_url: String, 
 #[tauri::command]
 pub async fn get_resource(state: State<'_, AppState>, registry_url: String, fqn: String) -> AppResult<ResourceDetail> {
     state.registry.resource(&registry_url, &fqn).await
+}
+
+#[tauri::command]
+pub async fn get_contract_version(state: State<'_, AppState>, registry_url: String, fqn: String, version: String) -> AppResult<ContractVersion> {
+    state.registry.contract_version(&registry_url, &fqn, &version).await
 }
 
 #[tauri::command]

@@ -3,6 +3,7 @@ import { api, errorMessage, type Page, type ResourceDetail, type ResourceSummary
 import { findVariables } from "../editor/analysis";
 import { formatFunctionPrice, formatResourcePrice, signature } from "../format";
 import { resourceDetail, useStore } from "../store";
+import { ContractSection } from "./ContractSection";
 import { editorViews } from "./Editor";
 import { Icon } from "./Icon";
 
@@ -65,7 +66,10 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
       {!detail && !error && <p className="muted">Loading…</p>}
       {detail && (
         <>
-          <h3>{detail.name}</h3>
+          <h3>
+            {detail.name}
+            {detail.contract && <span className="tag contract">Contract</span>}
+          </h3>
           <code className="fqn">{detail.fqn}</code>
           {detail.removedAt && <p className="form-error">The registry no longer sees this resource.</p>}
           {detail.description && <p>{detail.description}</p>}
@@ -96,6 +100,7 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
                 <div className="tags">
                   <span className="tag">{formatFunctionPrice(fn)}</span>
                   {fn.kind === "inference" && <span className="tag">Inference</span>}
+                  {fn.kind === "contract" && <span className="tag contract">Contract</span>}
                   {fn.restricted && <span className="tag warn">Restricted</span>}
                 </div>
                 {fn.description && <p>{fn.description}</p>}
@@ -111,6 +116,7 @@ function Detail({ registryUrl, fqn, onBack }: { registryUrl: string; fqn: string
               </li>
             ))}
           </ul>
+          {detail.contract && <ContractSection registryUrl={registryUrl} fqn={detail.fqn} contract={detail.contract} />}
         </>
       )}
     </div>
@@ -124,6 +130,7 @@ export function ResourceBrowser() {
   const [paid, setPaid] = useState(false);
   const [restricted, setRestricted] = useState(false);
   const [inference, setInference] = useState(false);
+  const [contract, setContract] = useState(false);
   const [results, setResults] = useState<ResourceSummary[]>([]);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +150,7 @@ export function ResourceBrowser() {
         paid: paid || undefined,
         restricted: restricted || undefined,
         inference: inference || undefined,
+        contract: contract || undefined,
         offset,
         limit: 50,
       });
@@ -160,7 +168,7 @@ export function ResourceBrowser() {
     const timer = setTimeout(() => void search(0), 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registryUrl, q, field, paid, restricted, inference, revision]);
+  }, [registryUrl, q, field, paid, restricted, inference, contract, revision]);
 
   useEffect(() => setSelected(null), [registryUrl]);
 
@@ -207,6 +215,9 @@ export function ResourceBrowser() {
             <label>
               <input type="checkbox" checked={inference} onChange={(e) => setInference(e.target.checked)} /> Inference
             </label>
+            <label>
+              <input type="checkbox" checked={contract} onChange={(e) => setContract(e.target.checked)} /> Contract
+            </label>
           </div>
           {error && <p className="form-error">{error}</p>}
           <ul className="results">
@@ -217,7 +228,7 @@ export function ResourceBrowser() {
                   <span className="result-path">{r.path}</span>
                   {r.description && <span className="result-description">{r.description}</span>}
                   <span className="tags">
-                    <span className="tag">{r.functionCount} fn</span>
+                    {r.isContract ? <span className="tag contract">Contract</span> : <span className="tag">{r.functionCount} fn</span>}
                     <span className="tag">{formatResourcePrice(r)}</span>
                     {r.inferenceFunctionCount > 0 && <span className="tag">Inference</span>}
                     {r.restrictedFunctionCount > 0 && <span className="tag warn">Restricted</span>}

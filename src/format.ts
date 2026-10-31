@@ -1,4 +1,4 @@
-import { isInferenceManifest, type ResourceFunction, type ResourceSummary } from "./api";
+import { isContractManifest, isInferenceManifest, type ResourceFunction, type ResourceSummary } from "./api";
 
 const MICRO_USD_PER_USD = 1_000_000;
 
@@ -8,7 +8,7 @@ export function formatUsd(microUsd: number): string {
   return `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
 }
 
-/** The per-call range of a resource's fixed functions, plus "per token" if it has paid inference functions. */
+/** The per-call range of a resource's fixed functions, plus "per token" if it has paid inference functions or is a paid contract. */
 export function formatResourcePrice(resource: ResourceSummary): string {
   const parts: string[] = [];
   const { price } = resource;
@@ -19,10 +19,11 @@ export function formatResourcePrice(resource: ResourceSummary): string {
   return parts.length ? parts.join(" / ") : "Free";
 }
 
-/** `$0.01 per call`, or `$3.00 in / $15.00 out per 1M tokens` for an inference function. */
+/** `$0.01 per call`, `$3.00 in / $15.00 out per 1M tokens` for an inference function, or `$2.00 per 1M script tokens` for a contract. */
 export function formatFunctionPrice(fn: ResourceFunction): string {
   const manifest = fn.paymentManifest;
   if (!manifest) return "Free";
+  if (isContractManifest(manifest)) return `${formatUsd(manifest.priceMicroUsdPerMillionTokens)} per 1M script tokens`;
   if (isInferenceManifest(manifest)) {
     return `${formatUsd(manifest.inputCostMicroUsdPerMillionTokens)} in / ${formatUsd(manifest.outputCostMicroUsdPerMillionTokens)} out per 1M tokens`;
   }
@@ -35,6 +36,13 @@ export function inferenceNote(fn: ResourceFunction): string | false {
   return fn.paymentManifest
     ? "Inference: maxTokens caps the output tokens. Your node signs for the estimated maximum and pays only for the tokens used."
     : "Inference: maxTokens caps the output tokens";
+}
+
+/** Extra lines for hovers and completions: what calling a contract's `run` does. */
+export function contractNote(fn: ResourceFunction, latestVersion?: string | null): string | false {
+  if (fn.kind !== "contract") return false;
+  const runs = `Contract: runs the latest version${latestVersion ? ` (@${latestVersion})` : ""} on its host.`;
+  return fn.paymentManifest ? `${runs} You pay for the script tokens it executes, plus the paid calls it makes.` : runs;
 }
 
 /** `temperature(city: string): decimal` */

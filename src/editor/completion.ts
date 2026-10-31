@@ -1,6 +1,6 @@
 import { type Completion, type CompletionContext, type CompletionSource, snippet } from "@codemirror/autocomplete";
 import type { ResourceFunction, ResourceSummary } from "../api";
-import { formatFunctionPrice, formatResourcePrice, inferenceNote, signature } from "../format";
+import { contractNote, formatFunctionPrice, formatResourcePrice, inferenceNote, signature } from "../format";
 import { completionContext, findBindings, findVariables, KEYWORDS, TYPES } from "./analysis";
 import type { ResourceProvider } from "./provider";
 
@@ -18,7 +18,16 @@ function infoNode(...lines: (string | null | undefined | false)[]): () => Node {
   };
 }
 
-function resourceOption(resource: ResourceSummary): Completion {
+/** Contracts get their own icon and say so, since they're called through `run` and priced per script token. */
+export function resourceOption(resource: ResourceSummary): Completion {
+  if (resource.isContract) {
+    return {
+      label: resource.fqn,
+      type: "contract",
+      detail: ["contract", formatResourcePrice(resource), resource.restrictedFunctionCount > 0 && "restricted"].filter(Boolean).join(" · "),
+      info: infoNode(resource.description, "A RequestScript contract. Call it with run(); calls run its latest version.", `Hosted at ${resource.baseUrl}`),
+    };
+  }
   const access = [
     formatResourcePrice(resource),
     resource.inferenceFunctionCount > 0 && `${resource.inferenceFunctionCount} inference`,
@@ -33,7 +42,7 @@ function resourceOption(resource: ResourceSummary): Completion {
 }
 
 /** Inserts `fn(a: |, b: )` with a field per parameter, unless a `(` already follows. */
-function functionOption(fn: ResourceFunction): Completion {
+function functionOption(fn: ResourceFunction, latestVersion?: string | null): Completion {
   const template = `${fn.name}(${fn.parameters.map((p) => `${p.name}: \${${p.name}}`).join(", ")})\${}`;
   const insert = snippet(template);
   return {
@@ -45,6 +54,7 @@ function functionOption(fn: ResourceFunction): Completion {
       fn.description,
       fn.paymentManifest ? `Costs ${formatFunctionPrice(fn)}` : "Free",
       inferenceNote(fn),
+      contractNote(fn, latestVersion),
       fn.restricted && "Restricted: callers need a grant from the hosting node",
     ),
     apply: (view, completion, from, to) => {
@@ -76,7 +86,7 @@ export function requestScriptCompletion(provider: ResourceProvider): CompletionS
       case "member": {
         const detail = await provider.resource(context.binding.fqn);
         if (!detail) return null;
-        return { from: context.from, options: detail.functions.map(functionOption), validFor: /^\w*$/ };
+        return { from: context.from, options: detail.functions.map((fn) => functionOption(fn, detail.contract?.latestVersion)), validFor: /^\w*$/ };
       }
 
       case "argument": {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ResourceFunction, ResourceSummary } from "./api";
-import { formatFunctionPrice, formatResourcePrice } from "./format";
+import { contractNote, formatFunctionPrice, formatResourcePrice } from "./format";
 
 const fn = (paymentManifest: ResourceFunction["paymentManifest"], kind: ResourceFunction["kind"] = "fixed"): ResourceFunction => ({
   name: "f",
@@ -25,6 +25,7 @@ const resource = (price: ResourceSummary["price"], perTokenFunctionCount: number
   perTokenFunctionCount,
   restrictedFunctionCount: 0,
   inferenceFunctionCount: perTokenFunctionCount,
+  isContract: false,
   lastSeenAt: "",
   removedAt: null,
 });
@@ -35,6 +36,15 @@ describe("prices", () => {
     expect(formatFunctionPrice(fn({ costMicroUsd: 10_000, recipientOrganizationId: "r" }))).toBe("$0.01 per call");
     const manifest = { inputCostMicroUsdPerMillionTokens: 3_000_000, outputCostMicroUsdPerMillionTokens: 15_000_000, recipientOrganizationId: "r" };
     expect(formatFunctionPrice(fn(manifest, "inference"))).toBe("$3.00 in / $15.00 out per 1M tokens");
+    const contract = fn({ priceMicroUsdPerMillionTokens: 2_000_000, recipientOrganizationId: "r" }, "contract");
+    expect(formatFunctionPrice(contract)).toBe("$2.00 per 1M script tokens");
+  });
+
+  it("explains what a contract call runs", () => {
+    expect(contractNote(fn(null))).toBe(false);
+    expect(contractNote(fn(null, "contract"), "1.1")).toBe("Contract: runs the latest version (@1.1) on its host.");
+    const paid = fn({ priceMicroUsdPerMillionTokens: 1, recipientOrganizationId: "r" }, "contract");
+    expect(contractNote(paid, null)).toBe("Contract: runs the latest version on its host. You pay for the script tokens it executes, plus the paid calls it makes.");
   });
 
   it("doesn't call a resource with only per-token functions free", () => {

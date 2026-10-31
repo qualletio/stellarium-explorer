@@ -65,6 +65,7 @@ pub fn run() {
             commands::resolve_network,
             commands::search_resources,
             commands::get_resource,
+            commands::get_contract_version,
             commands::registry_stats,
             commands::get_catalog,
             commands::run_request,

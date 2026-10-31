@@ -53,12 +53,15 @@ pub struct ResourceSummary {
     pub price: Option<PriceRange>,
     /// Paid functions of either kind.
     pub paid_function_count: u32,
-    /// Paid inference functions, priced per token and so not in `price`. Defaulted for catalogs saved before inference.
+    /// Paid inference functions and contracts, priced per token and so not in `price`. Defaulted for catalogs saved before inference.
     #[serde(default)]
     pub per_token_function_count: u32,
     pub restricted_function_count: u32,
     #[serde(default)]
     pub inference_function_count: u32,
+    /// A RequestScript script deployed to its node, with one function, `run`. Defaulted for catalogs saved before contracts.
+    #[serde(default)]
+    pub is_contract: bool,
     pub last_seen_at: String,
     pub removed_at: Option<String>,
 }
@@ -86,15 +89,20 @@ pub enum PaymentManifest {
         output_cost_micro_usd_per_million_tokens: u64,
         recipient_organization_id: String,
     },
+    /// A contract's price per million script tokens it executes.
+    #[serde(rename_all = "camelCase")]
+    Contract { price_micro_usd_per_million_tokens: u64, recipient_organization_id: String },
 }
 
 /// Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token.
+/// A contract's one function, `run`, runs its latest version and is priced per script token executed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FunctionKind {
     #[default]
     Fixed,
     Inference,
+    Contract,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +116,49 @@ pub struct ResourceFunction {
     pub restricted: bool,
     #[serde(default)]
     pub kind: FunctionKind,
+}
+
+/// A contract parameter. `ty` is a RequestScript type string, such as `int32` or `[]string`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractParameter {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: String,
+}
+
+/// One deployed version of a contract, without its source. Versions are immutable on the node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractVersionSummary {
+    pub version: String,
+    pub parameters: Vec<ContractParameter>,
+    pub return_type: String,
+    pub description: Option<String>,
+    pub deployed_at: String,
+}
+
+/// One version of a contract, with its RequestScript source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractVersion {
+    pub fqn: String,
+    #[serde(flatten)]
+    pub summary: ContractVersionSummary,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractInfo {
+    /// Null when the node's admin deployed it.
+    pub owner_organization_id: Option<String>,
+    /// The version calls run. Null until the registry has read the contract's versions from its host.
+    pub latest_version: Option<String>,
+    /// Newest first.
+    pub versions: Vec<ContractVersionSummary>,
+    /// The latest version's source.
+    pub source: Option<String>,
+    pub synced_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +184,9 @@ pub struct ResourceDetail {
     pub website: Option<String>,
     pub description: Option<String>,
     pub functions: Vec<ResourceFunction>,
+    /// Set when the resource is a contract.
+    #[serde(default)]
+    pub contract: Option<ContractInfo>,
     pub host: Option<NodeInfo>,
     pub first_seen_at: String,
     pub last_seen_at: String,
@@ -162,6 +216,8 @@ pub struct Stats {
     pub restricted_functions: u64,
     #[serde(default)]
     pub inference_functions: u64,
+    #[serde(default)]
+    pub contracts: u64,
     pub nodes: u64,
     pub source_url: String,
     pub last_sync: Option<SyncRun>,
@@ -181,6 +237,8 @@ pub struct SearchQuery {
     pub restricted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inference: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,12 +274,14 @@ pub struct Registry {
     cache_dir: Option<PathBuf>,
     catalogs: Mutex<HashMap<String, Cached<Catalog>>>,
     details: Mutex<HashMap<(String, String), Cached<ResourceDetail>>>,
+    /// Keyed by registry, fqn and version.
+    versions: Mutex<HashMap<(String, String, String), ContractVersion>>,
 }
 
 impl Registry {
     /// Catalogs are also saved under `cache_dir`, so autocomplete works offline.
     pub fn new(http: reqwest::Client, cache_dir: Option<PathBuf>) -> Self {
-        Self { http, cache_dir, catalogs: Mutex::default(), details: Mutex::default() }
+        Self { http, cache_dir, catalogs: Mutex::default(), details: Mutex::default(), versions: Mutex::default() }
     }
 
     pub async fn search(&self, registry_url: &str, query: &SearchQuery) -> AppResult<Page<ResourceSummary>> {
@@ -239,11 +299,21 @@ impl Registry {
         if let Some(detail) = self.details.lock().unwrap().get(&key).and_then(Cached::fresh) {
             return Ok(detail);
         }
-        let mut url = reqwest::Url::parse(&base).map_err(|e| AppError::Invalid(format!("invalid registry URL: {e}")))?;
-        url.path_segments_mut().map_err(|_| AppError::Invalid("invalid registry URL".into()))?.push("resources").push(fqn);
-        let detail: ResourceDetail = self.get(self.http.get(url)).await?;
+        let detail: ResourceDetail = self.get(self.http.get(resource_url(&base, &[fqn])?)).await?;
         self.details.lock().unwrap().insert(key, Cached { value: detail.clone(), at: Instant::now() });
         Ok(detail)
+    }
+
+    /// One version of a contract, with its source. Versions are immutable, so they're kept for the session.
+    pub async fn contract_version(&self, registry_url: &str, fqn: &str, version: &str) -> AppResult<ContractVersion> {
+        let base = registry_base(registry_url);
+        let key = (base.clone(), fqn.to_string(), version.to_string());
+        if let Some(found) = self.versions.lock().unwrap().get(&key) {
+            return Ok(found.clone());
+        }
+        let found: ContractVersion = self.get(self.http.get(resource_url(&base, &[fqn, "versions", version])?)).await?;
+        self.versions.lock().unwrap().insert(key, found.clone());
+        Ok(found)
     }
 
     /// Every live resource on the registry. Served from memory for `TTL` unless `refresh`, which
@@ -316,6 +386,13 @@ impl Registry {
         }
         response.json().await.map_err(|e| AppError::Http(format!("unexpected registry response: {e}")))
     }
+}
+
+/// `{base}/resources/{segments...}`, with each segment percent-encoded.
+fn resource_url(base: &str, segments: &[&str]) -> AppResult<reqwest::Url> {
+    let mut url = reqwest::Url::parse(base).map_err(|e| AppError::Invalid(format!("invalid registry URL: {e}")))?;
+    url.path_segments_mut().map_err(|_| AppError::Invalid("invalid registry URL".into()))?.push("resources").extend(segments);
+    Ok(url)
 }
 
 fn now_millis() -> u64 {
@@ -428,6 +505,70 @@ mod tests {
 
         let error = registry.resource(&base, "missing.Thing").await.unwrap_err();
         assert_eq!(error.to_string(), "registry returned 404: Resource not found");
+    }
+
+    fn visits() -> serde_json::Value {
+        json!({
+            "fqn": "org.archive.Visits", "path": "org.archive", "name": "Visits", "baseUrl": "http://node",
+            "website": null, "description": "Counts how often each book is viewed.",
+            "functions": [{
+                "name": "run", "returnType": "int32", "description": null,
+                "parameters": [{ "name": "bookId", "type": "string", "description": null }],
+                "paymentManifest": { "priceMicroUsdPerMillionTokens": 2000000, "recipientOrganizationId": "abc" },
+                "restricted": false, "kind": "contract",
+            }],
+            "contract": {
+                "ownerOrganizationId": null, "latestVersion": "1.1",
+                "versions": [
+                    { "version": "1.1", "parameters": [{ "name": "bookId", "type": "string" }], "returnType": "int32", "description": null, "deployedAt": "2026-10-31T00:00:00Z" },
+                    { "version": "1.0", "parameters": [], "returnType": "int32", "description": "First", "deployedAt": "2026-10-30T00:00:00Z" },
+                ],
+                "source": "contract org.archive.Visits(bookId: string): int32 { return 1 }",
+                "syncedAt": "2026-10-31T00:00:00Z",
+            },
+            "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
+        })
+    }
+
+    #[tokio::test]
+    async fn reads_contracts_and_their_versions() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/resources/org.archive.Visits"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(visits()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/resources/org.archive.Visits/versions/1.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "fqn": "org.archive.Visits", "version": "1.0", "parameters": [], "returnType": "int32",
+                "description": "First", "deployedAt": "2026-10-30T00:00:00Z", "source": "contract org.archive.Visits(): int32 { return 0 }",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let registry = Registry::new(reqwest::Client::new(), None);
+        let detail = registry.resource(&server.uri(), "org.archive.Visits").await.unwrap();
+        assert_eq!(detail.functions[0].kind, FunctionKind::Contract);
+        assert!(matches!(
+            detail.functions[0].payment_manifest,
+            Some(PaymentManifest::Contract { price_micro_usd_per_million_tokens: 2_000_000, .. })
+        ));
+        let contract = detail.contract.unwrap();
+        assert_eq!(contract.latest_version.as_deref(), Some("1.1"));
+        assert_eq!(contract.versions[0].parameters[0].ty, "string");
+
+        let version = registry.contract_version(&server.uri(), "org.archive.Visits", "1.0").await.unwrap();
+        assert_eq!(version.summary.version, "1.0");
+        assert!(version.source.contains("return 0"));
+        // Versions are immutable, so a second read comes from memory.
+        registry.contract_version(&server.uri(), "org.archive.Visits", "1.0").await.unwrap();
+
+        // The frontend reads a flat version, as the registry sends it.
+        let wire = serde_json::to_value(&version).unwrap();
+        assert_eq!(wire["deployedAt"], "2026-10-30T00:00:00Z");
+        assert_eq!(wire["returnType"], "int32");
     }
 
     #[tokio::test]

@@ -84,10 +84,12 @@ export interface ResourceSummary {
   price: PriceRange | null;
   /** Paid functions of either kind. */
   paidFunctionCount: number;
-  /** Paid inference functions, priced per token and so not in `price`. */
+  /** Paid inference functions and contracts, priced per token and so not in `price`. */
   perTokenFunctionCount: number;
   restrictedFunctionCount: number;
   inferenceFunctionCount: number;
+  /** A RequestScript script deployed to its node, with one function, `run`. */
+  isContract: boolean;
   lastSeenAt: string;
   removedAt: string | null;
 }
@@ -111,14 +113,26 @@ export interface InferencePaymentManifest {
   recipientOrganizationId: string;
 }
 
+/** A contract's price per million script tokens it executes. */
+export interface ContractPaymentManifest {
+  priceMicroUsdPerMillionTokens: number;
+  recipientOrganizationId: string;
+}
+
 /** Its shape follows the function's `kind`. */
-export type PaymentManifest = FixedPaymentManifest | InferencePaymentManifest;
+export type PaymentManifest = FixedPaymentManifest | InferencePaymentManifest | ContractPaymentManifest;
 
 export const isInferenceManifest = (manifest: PaymentManifest): manifest is InferencePaymentManifest =>
   "inputCostMicroUsdPerMillionTokens" in manifest;
 
-/** Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token. */
-export type FunctionKind = "fixed" | "inference";
+export const isContractManifest = (manifest: PaymentManifest): manifest is ContractPaymentManifest =>
+  "priceMicroUsdPerMillionTokens" in manifest;
+
+/**
+ * Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token.
+ * A contract's one function, `run`, runs its latest version and is priced per script token executed.
+ */
+export type FunctionKind = "fixed" | "inference" | "contract";
 
 export interface ResourceFunction {
   name: string;
@@ -128,6 +142,40 @@ export interface ResourceFunction {
   paymentManifest: PaymentManifest | null;
   restricted: boolean;
   kind: FunctionKind;
+}
+
+/** A RequestScript type string, such as `int32` or `[]string`. */
+export interface ContractParameter {
+  name: string;
+  type: string;
+}
+
+/** One deployed version of a contract, without its source. Versions are immutable on the node. */
+export interface ContractVersionSummary {
+  version: string;
+  parameters: ContractParameter[];
+  returnType: string;
+  description: string | null;
+  deployedAt: string;
+}
+
+/** One version of a contract, with its RequestScript source. */
+export interface ContractVersion extends ContractVersionSummary {
+  fqn: string;
+  source: string;
+}
+
+export interface ContractInfo {
+  /** Null when the node's admin deployed it. */
+  ownerOrganizationId: string | null;
+  /** The version calls run. Null until the registry has read the contract's versions from its host. */
+  latestVersion: string | null;
+  /** Newest first. */
+  versions: ContractVersionSummary[];
+  /** The latest version's source. */
+  source: string | null;
+  /** When the registry last read the contract's versions from its host. */
+  syncedAt: string | null;
 }
 
 export interface NodeInfo {
@@ -149,6 +197,8 @@ export interface ResourceDetail {
   website: string | null;
   description: string | null;
   functions: ResourceFunction[];
+  /** Set when the resource is a contract. */
+  contract: ContractInfo | null;
   host: NodeInfo | null;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -161,6 +211,7 @@ export interface Stats {
   paidFunctions: number;
   restrictedFunctions: number;
   inferenceFunctions: number;
+  contracts: number;
   nodes: number;
   sourceUrl: string;
 }
@@ -173,6 +224,8 @@ export interface SearchQuery {
   paid?: boolean;
   restricted?: boolean;
   inference?: boolean;
+  /** Only contracts. */
+  contract?: boolean;
   offset?: number;
   limit?: number;
 }
@@ -218,6 +271,8 @@ export const api = {
   searchResources: (registryUrl: string, query: SearchQuery) =>
     invoke<Page<ResourceSummary>>("search_resources", { registryUrl, query }),
   getResource: (registryUrl: string, fqn: string) => invoke<ResourceDetail>("get_resource", { registryUrl, fqn }),
+  getContractVersion: (registryUrl: string, fqn: string, version: string) =>
+    invoke<ContractVersion>("get_contract_version", { registryUrl, fqn, version }),
   registryStats: (registryUrl: string) => invoke<Stats>("registry_stats", { registryUrl }),
   getCatalog: (registryUrl: string, refresh = false) => invoke<Catalog>("get_catalog", { registryUrl, refresh }),
   runRequest: (id: string, source: string, runId: string) => invoke<RunResult>("run_request", { id, source, runId }),

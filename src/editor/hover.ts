@@ -1,5 +1,5 @@
 import { hoverTooltip } from "@codemirror/view";
-import { formatFunctionPrice, inferenceNote, signature } from "../format";
+import { contractNote, formatFunctionPrice, inferenceNote, signature } from "../format";
 import { symbolAt } from "./analysis";
 import type { ResourceProvider } from "./provider";
 
@@ -28,7 +28,8 @@ export function requestScriptHover(provider: ResourceProvider) {
 
     const base = { pos: symbol.from, end: symbol.to, above: true };
     if (symbol.kind === "binding") {
-      return { ...base, create: () => tooltipDom(detail.fqn, detail.description, `Hosted at ${detail.baseUrl}`, detail.website) };
+      const contract = detail.contract && `Contract${detail.contract.latestVersion ? ` · latest @${detail.contract.latestVersion}` : ""}. Call it with run().`;
+      return { ...base, create: () => tooltipDom(detail.fqn, contract, detail.description, `Hosted at ${detail.baseUrl}`, detail.website) };
     }
     const fn = detail.functions.find((f) => f.name === symbol.fn);
     if (!fn) return null;
@@ -41,6 +42,7 @@ export function requestScriptHover(provider: ResourceProvider) {
             fn.description,
             fn.paymentManifest ? `Costs ${formatFunctionPrice(fn)}` : "Free",
             inferenceNote(fn),
+            contractNote(fn, detail.contract?.latestVersion),
             fn.restricted && "Restricted: callers need a grant from the hosting node",
           ),
       };

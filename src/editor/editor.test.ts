@@ -22,6 +22,7 @@ const summary = (fqn: string): ResourceSummary => ({
   perTokenFunctionCount: 0,
   restrictedFunctionCount: 0,
   inferenceFunctionCount: 0,
+  isContract: false,
   lastSeenAt: "",
   removedAt: null,
 });
@@ -43,13 +44,41 @@ const weather: ResourceDetail = {
       kind: "fixed",
     },
   ],
+  contract: null,
+  host: null,
+  firstSeenAt: "",
+};
+
+const visitsSummary: ResourceSummary = { ...summary("org.archive.Visits"), isContract: true, paidFunctionCount: 1, perTokenFunctionCount: 1 };
+
+const visits: ResourceDetail = {
+  ...summary("org.archive.Visits"),
+  website: null,
+  functions: [
+    {
+      name: "run",
+      returnType: "int32",
+      description: null,
+      parameters: [{ name: "bookId", type: "string", description: null }],
+      paymentManifest: { priceMicroUsdPerMillionTokens: 2_000_000, recipientOrganizationId: "r" },
+      restricted: false,
+      kind: "contract",
+    },
+  ],
+  contract: {
+    ownerOrganizationId: null,
+    latestVersion: "1.1",
+    versions: [],
+    source: "contract org.archive.Visits(bookId: string): int32 { return 1 }",
+    syncedAt: null,
+  },
   host: null,
   firstSeenAt: "",
 };
 
 const catalog: Catalog = {
   registryUrl: "http://registry/v1",
-  items: [summary("com.example.Weather"), summary("org.archive.Books")],
+  items: [summary("com.example.Weather"), summary("org.archive.Books"), visitsSummary],
   fetchedAt: 0,
   stale: false,
 };
@@ -57,7 +86,7 @@ const catalog: Catalog = {
 const provider: ResourceProvider = {
   catalog: async () => catalog,
   cachedCatalog: () => catalog,
-  resource: async (fqn) => (fqn === weather.fqn ? weather : null),
+  resource: async (fqn) => [weather, visits].find((r) => r.fqn === fqn) ?? null,
 };
 
 function state(marked: string) {
@@ -78,8 +107,22 @@ const HEADER = "request R {\n    const weather: com.example.Weather\n";
 describe("completion", () => {
   it("offers registry resources in a declaration", async () => {
     const result = await complete("request R {\n    const b: org.|");
-    expect(labels(result)).toEqual(["com.example.Weather", "org.archive.Books"]);
+    expect(labels(result)).toEqual(["com.example.Weather", "org.archive.Books", "org.archive.Visits"]);
     expect(result?.from).toBe("request R {\n    const b: ".length);
+  });
+
+  it("marks contracts among the resources", async () => {
+    const result = await complete("request R {\n    const v: org.archive.V|");
+    const option = result?.options.find((o) => o.label === "org.archive.Visits");
+    expect(option).toMatchObject({ type: "contract", detail: "contract · per token" });
+    expect(result?.options.find((o) => o.label === "org.archive.Books")?.type).toBe("class");
+  });
+
+  it("offers a contract's run function", async () => {
+    const result = await complete("request R {\n    const visits: org.archive.Visits\n    visits.|");
+    expect(labels(result)).toEqual(["run"]);
+    expect(result?.options[0].detail).toBe("(bookId: string) → int32");
+    expect(labels(await complete("request R {\n    const visits: org.archive.Visits\n    visits.run(|)"))).toEqual(["bookId"]);
   });
 
   it("offers a bound resource's functions", async () => {
@@ -116,6 +159,14 @@ describe("highlighting", () => {
     expect(classOf("1")).toBe("tok-number");
     expect(classOf(' b"')).toBe("tok-string");
     expect(classOf("// done")).toBe("tok-comment");
+  });
+
+  it("highlights a contract's state declarations", () => {
+    const { state: s } = state("contract a.B(id: string): int32 {\n    var state(id) views: int32 = 0\n}|");
+    const tree = ensureSyntaxTree(s, s.doc.length, 5000)!;
+    const tokens: [string, string][] = [];
+    highlightTree(tree, classHighlighter, (from, to, classes) => tokens.push([s.sliceDoc(from, to), classes]));
+    expect(tokens.find(([t]) => t === "state")?.[1]).toBe("tok-keyword");
   });
 
   it("indents by brace depth", () => {
