@@ -116,6 +116,9 @@ pub struct ResourceFunction {
     pub restricted: bool,
     #[serde(default)]
     pub kind: FunctionKind,
+    /// A contract's `pub payable fn`: a call to it may attach money.
+    #[serde(default)]
+    pub payable: bool,
 }
 
 /// A contract parameter. `ty` is a RequestScript type string, such as `int32` or `[]string`.
@@ -126,13 +129,24 @@ pub struct ContractParameter {
     pub ty: String,
 }
 
+/// One of a contract version's entrypoints: a `pub fn`, or an event contract's handler, `on`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractFunction {
+    pub name: String,
+    pub parameters: Vec<ContractParameter>,
+    /// A RequestScript type string, or `void`.
+    pub return_type: String,
+    #[serde(default)]
+    pub payable: bool,
+}
+
 /// One deployed version of a contract, without its source. Versions are immutable on the node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContractVersionSummary {
     pub version: String,
-    pub parameters: Vec<ContractParameter>,
-    pub return_type: String,
+    pub functions: Vec<ContractFunction>,
     pub description: Option<String>,
     pub deployed_at: String,
 }
@@ -512,18 +526,25 @@ mod tests {
             "fqn": "org.archive.Visits", "path": "org.archive", "name": "Visits", "baseUrl": "http://node",
             "website": null, "description": "Counts how often each book is viewed.",
             "functions": [{
-                "name": "run", "returnType": "int32", "description": null,
+                "name": "view", "returnType": "int32", "description": null,
                 "parameters": [{ "name": "bookId", "type": "string", "description": null }],
                 "paymentManifest": { "priceMicroUsdPerMillionTokens": 2000000, "recipientOrganizationId": "abc" },
                 "restricted": false, "kind": "contract",
+            }, {
+                "name": "tip", "returnType": "void", "description": null, "parameters": [],
+                "paymentManifest": { "priceMicroUsdPerMillionTokens": 2000000, "recipientOrganizationId": "abc" },
+                "restricted": false, "kind": "contract", "payable": true,
             }],
             "contract": {
                 "ownerOrganizationId": null, "latestVersion": "1.1",
                 "versions": [
-                    { "version": "1.1", "parameters": [{ "name": "bookId", "type": "string" }], "returnType": "int32", "description": null, "deployedAt": "2026-10-31T00:00:00Z" },
-                    { "version": "1.0", "parameters": [], "returnType": "int32", "description": "First", "deployedAt": "2026-10-30T00:00:00Z" },
+                    { "version": "1.1", "functions": [
+                        { "name": "view", "parameters": [{ "name": "bookId", "type": "string" }], "returnType": "int32", "payable": false },
+                        { "name": "tip", "parameters": [], "returnType": "void", "payable": true },
+                    ], "description": null, "deployedAt": "2026-10-31T00:00:00Z" },
+                    { "version": "1.0", "functions": [{ "name": "view", "parameters": [], "returnType": "int32", "payable": false }], "description": "First", "deployedAt": "2026-10-30T00:00:00Z" },
                 ],
-                "source": "contract org.archive.Visits(bookId: string): int32 { return 1 }",
+                "source": "contract org.archive.Visits@1.1 { pub fn view(bookId: string): int32 { return 1 } pub payable fn tip() { } }",
                 "syncedAt": "2026-10-31T00:00:00Z",
             },
             "host": null, "firstSeenAt": "2026-10-18T00:00:00Z", "lastSeenAt": "2026-10-18T00:00:00Z", "removedAt": null,
@@ -541,8 +562,8 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/v1/resources/org.archive.Visits/versions/1.0"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "fqn": "org.archive.Visits", "version": "1.0", "parameters": [], "returnType": "int32",
-                "description": "First", "deployedAt": "2026-10-30T00:00:00Z", "source": "contract org.archive.Visits(): int32 { return 0 }",
+                "fqn": "org.archive.Visits", "version": "1.0", "functions": [{ "name": "view", "parameters": [], "returnType": "int32", "payable": false }],
+                "description": "First", "deployedAt": "2026-10-30T00:00:00Z", "source": "contract org.archive.Visits@1.0 { pub fn view(): int32 { return 0 } }",
             })))
             .expect(1)
             .mount(&server)
@@ -557,7 +578,10 @@ mod tests {
         ));
         let contract = detail.contract.unwrap();
         assert_eq!(contract.latest_version.as_deref(), Some("1.1"));
-        assert_eq!(contract.versions[0].parameters[0].ty, "string");
+        assert_eq!(contract.versions[0].functions[0].parameters[0].ty, "string");
+        assert!(contract.versions[0].functions[1].payable);
+        assert!(!detail.functions[0].payable);
+        assert!(detail.functions[1].payable);
 
         let version = registry.contract_version(&server.uri(), "org.archive.Visits", "1.0").await.unwrap();
         assert_eq!(version.summary.version, "1.0");
@@ -568,7 +592,7 @@ mod tests {
         // The frontend reads a flat version, as the registry sends it.
         let wire = serde_json::to_value(&version).unwrap();
         assert_eq!(wire["deployedAt"], "2026-10-30T00:00:00Z");
-        assert_eq!(wire["returnType"], "int32");
+        assert_eq!(wire["functions"][0]["returnType"], "int32");
     }
 
     #[tokio::test]

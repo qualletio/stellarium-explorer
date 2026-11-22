@@ -38,10 +38,10 @@ export function inferenceNote(fn: ResourceFunction): string | false {
     : "Inference: maxTokens caps the output tokens";
 }
 
-/** Extra lines for hovers and completions: what calling a contract's `run` does. */
+/** Extra lines for hovers and completions: what calling one of a contract's functions does. */
 export function contractNote(fn: ResourceFunction, latestVersion?: string | null): string | false {
   if (fn.kind !== "contract") return false;
-  const runs = `Contract: runs the latest version${latestVersion ? ` (@${latestVersion})` : ""} on its host.`;
+  const runs = `Contract${fn.payable ? ", payable" : ""}: runs the latest version${latestVersion ? ` (@${latestVersion})` : ""} on its host.`;
   return fn.paymentManifest ? `${runs} You pay for the script tokens it executes, plus the paid calls it makes.` : runs;
 }
 

@@ -56,7 +56,7 @@ const visits: ResourceDetail = {
   website: null,
   functions: [
     {
-      name: "run",
+      name: "view",
       returnType: "int32",
       description: null,
       parameters: [{ name: "bookId", type: "string", description: null }],
@@ -64,12 +64,22 @@ const visits: ResourceDetail = {
       restricted: false,
       kind: "contract",
     },
+    {
+      name: "tip",
+      returnType: "void",
+      description: null,
+      parameters: [],
+      paymentManifest: { priceMicroUsdPerMillionTokens: 2_000_000, recipientOrganizationId: "r" },
+      restricted: false,
+      kind: "contract",
+      payable: true,
+    },
   ],
   contract: {
     ownerOrganizationId: null,
     latestVersion: "1.1",
     versions: [],
-    source: "contract org.archive.Visits(bookId: string): int32 { return 1 }",
+    source: "contract org.archive.Visits@1.1 { pub fn view(bookId: string): int32 { return 1 } pub payable fn tip() { } }",
     syncedAt: null,
   },
   host: null,
@@ -118,11 +128,11 @@ describe("completion", () => {
     expect(result?.options.find((o) => o.label === "org.archive.Books")?.type).toBe("class");
   });
 
-  it("offers a contract's run function", async () => {
+  it("offers a contract's pub functions", async () => {
     const result = await complete("request R {\n    const visits: org.archive.Visits\n    visits.|");
-    expect(labels(result)).toEqual(["run"]);
+    expect(labels(result)).toEqual(["view", "tip"]);
     expect(result?.options[0].detail).toBe("(bookId: string) → int32");
-    expect(labels(await complete("request R {\n    const visits: org.archive.Visits\n    visits.run(|)"))).toEqual(["bookId"]);
+    expect(labels(await complete("request R {\n    const visits: org.archive.Visits\n    visits.view(|)"))).toEqual(["bookId"]);
   });
 
   it("offers a bound resource's functions", async () => {
@@ -162,11 +172,13 @@ describe("highlighting", () => {
   });
 
   it("highlights a contract's state declarations", () => {
-    const { state: s } = state("contract a.B(id: string): int32 {\n    var state(id) views: int32 = 0\n}|");
+    const { state: s } = state("contract a.B {\n    var state total: int32 = 0\n    pub payable fn run(id: string): int32 {\n        var state(id) views: int32 = 0\n    }\n}|");
     const tree = ensureSyntaxTree(s, s.doc.length, 5000)!;
     const tokens: [string, string][] = [];
     highlightTree(tree, classHighlighter, (from, to, classes) => tokens.push([s.sliceDoc(from, to), classes]));
-    expect(tokens.find(([t]) => t === "state")?.[1]).toBe("tok-keyword");
+    expect(tokens.filter(([t]) => t === "state").map(([, classes]) => classes)).toEqual(["tok-keyword", "tok-keyword"]);
+    for (const word of ["pub", "payable", "fn"]) expect(tokens.find(([t]) => t === word)?.[1]).toBe("tok-keyword");
+    expect(tokens.find(([t]) => t === "total")?.[1]).toContain("tok-definition");
   });
 
   it("indents by brace depth", () => {

@@ -87,7 +87,9 @@ export function ContractSection({ registryUrl, fqn, contract }: { registryUrl: s
                     </span>
                   </span>
                   <code className="version-signature">
-                    ({v.parameters.map((p) => `${p.name}: ${p.type}`).join(", ")}): {v.returnType}
+                    {v.functions
+                      .map((fn) => `${fn.payable ? "payable " : ""}${fn.name}(${fn.parameters.map((p) => `${p.name}: ${p.type}`).join(", ")})${fn.returnType === "void" ? "" : `: ${fn.returnType}`}`)
+                      .join(" · ")}
                   </code>
                   {v.description && <span className="version-description">{v.description}</span>}
                 </button>
