@@ -3,7 +3,7 @@
  * It never throws, since it runs on half-typed code.
  */
 
-export const KEYWORDS = ["request", "contract", "var", "const", "return", "if", "else", "true", "false", "null"] as const;
+export const KEYWORDS = ["request", "contract", "var", "const", "return", "if", "else", "true", "false", "null", "fn", "pub"] as const;
 export const TYPES = ["int32", "int64", "decimal", "boolean", "string", "object"] as const;
 
 const IDENT = "[A-Za-z_][A-Za-z0-9_]*";

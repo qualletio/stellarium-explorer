@@ -79,8 +79,14 @@ const requestScript = StreamLanguage.define<State>({
         return "keyword";
       }
       if (TYPE_SET.has(text)) return "typeName";
-      // A contract's persisted variable: `var state(key) name: type`.
-      if (expect === "declName" && text === "state" && stream.match(/^\s*\(/, false)) return "keyword";
+      // A contract's persisted variable: `var state name: type` or `var state(key) name: type`.
+      if (expect === "declName" && text === "state" && stream.match(/^\s*[(A-Za-z_]/, false)) {
+        if (!stream.match(/^\s*\(/, false)) state.expect = "declName";
+        return "keyword";
+      }
+      // Contextual words: `pub payable fn` and `contract X consumes path.Event`.
+      if (text === "payable" && stream.match(/^\s*fn\b/, false)) return "keyword";
+      if (text === "consumes" && stream.match(/^\s*[A-Za-z_]/, false)) return "keyword";
       if (expect === "declName") {
         state.expect = "typeColon";
         return "definition(variableName)";

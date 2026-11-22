@@ -18,14 +18,14 @@ function infoNode(...lines: (string | null | undefined | false)[]): () => Node {
   };
 }
 
-/** Contracts get their own icon and say so, since they're called through `run` and priced per script token. */
+/** Contracts get their own icon and say so, since they're called through their `pub fn`s and priced per script token. */
 export function resourceOption(resource: ResourceSummary): Completion {
   if (resource.isContract) {
     return {
       label: resource.fqn,
       type: "contract",
       detail: ["contract", formatResourcePrice(resource), resource.restrictedFunctionCount > 0 && "restricted"].filter(Boolean).join(" · "),
-      info: infoNode(resource.description, "A RequestScript contract. Call it with run(); calls run its latest version.", `Hosted at ${resource.baseUrl}`),
+      info: infoNode(resource.description, "A RequestScript contract. Call one of its functions; calls run its latest version.", `Hosted at ${resource.baseUrl}`),
     };
   }
   const access = [

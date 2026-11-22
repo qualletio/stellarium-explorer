@@ -130,7 +130,7 @@ export const isContractManifest = (manifest: PaymentManifest): manifest is Contr
 
 /**
  * Fixed functions have a flat price. Inference functions run AI inference, take `maxTokens` and are priced per token.
- * A contract's one function, `run`, runs its latest version and is priced per script token executed.
+ * A contract has a function per `pub fn`, each running its latest version, priced per script token executed.
  */
 export type FunctionKind = "fixed" | "inference" | "contract";
 
@@ -142,6 +142,8 @@ export interface ResourceFunction {
   paymentManifest: PaymentManifest | null;
   restricted: boolean;
   kind: FunctionKind;
+  /** A contract's `pub payable fn`: a call to it may attach money. */
+  payable?: boolean;
 }
 
 /** A RequestScript type string, such as `int32` or `[]string`. */
@@ -150,11 +152,19 @@ export interface ContractParameter {
   type: string;
 }
 
+/** One of a contract version's entrypoints: a `pub fn`, or an event contract's handler. */
+export interface ContractFunction {
+  name: string;
+  parameters: ContractParameter[];
+  /** A RequestScript type, or `void`. */
+  returnType: string;
+  payable: boolean;
+}
+
 /** One deployed version of a contract, without its source. Versions are immutable on the node. */
 export interface ContractVersionSummary {
   version: string;
-  parameters: ContractParameter[];
-  returnType: string;
+  functions: ContractFunction[];
   description: string | null;
   deployedAt: string;
 }

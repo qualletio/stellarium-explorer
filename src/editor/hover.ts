@@ -28,7 +28,7 @@ export function requestScriptHover(provider: ResourceProvider) {
 
     const base = { pos: symbol.from, end: symbol.to, above: true };
     if (symbol.kind === "binding") {
-      const contract = detail.contract && `Contract${detail.contract.latestVersion ? ` · latest @${detail.contract.latestVersion}` : ""}. Call it with run().`;
+      const contract = detail.contract && `Contract${detail.contract.latestVersion ? ` · latest @${detail.contract.latestVersion}` : ""}. Call its pub functions.`;
       return { ...base, create: () => tooltipDom(detail.fqn, contract, detail.description, `Hosted at ${detail.baseUrl}`, detail.website) };
     }
     const fn = detail.functions.find((f) => f.name === symbol.fn);
